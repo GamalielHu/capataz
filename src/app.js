@@ -7,7 +7,7 @@ import { revisarAlarmas } from "./core/alarmas.js";
 import { plataforma, nativo } from "./adapters/plataforma.js";
 import { pedirPermiso, alAccionar } from "./adapters/notifications.js";
 import { dictar, detener, puedeDictar, consejoDictado, hablar as decir } from "./adapters/voice.js";
-import { guardarClave, tieneClave, MODELO_POR_DEFECTO } from "./adapters/llm.js";
+import { guardarClave, tieneClave } from "./adapters/llm.js";
 
 const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
 function setSync(on, texto){ const s=$("#sync"); s.classList.toggle("on", on); s.querySelector("span").textContent=texto; }
@@ -109,10 +109,10 @@ let ocupado=false;
 function burbuja(cls, texto){ const b=el("div",{class:"msg "+cls}, texto); chat.append(b); b.scrollIntoView({block:"end",behavior:"smooth"}); return b; }
 
 const ERRORES = {
-  sin_clave:"Para conversar, pon tu clave de API de Anthropic en Ajustes (engranaje arriba). Mientras tanto puedes usar Trabajos y Avisos.",
-  clave_invalida:"La clave de API no es válida o no tiene saldo. Revísala en Ajustes.",
-  rate_limited:"Llegaste al límite de mensajes por ahora. Intenta de nuevo en un rato.",
-  sobrecargado:"El servicio de Claude está ocupado. Intenta de nuevo en un momento.",
+  sin_clave:"Para conversar libremente, pon una clave gratuita de Gemini en Ajustes (engranaje arriba).",
+  clave_invalida:"La clave de IA no es válida. Revísala en Ajustes.",
+  rate_limited:"Llegaste al límite gratuito por ahora. Intenta de nuevo en un rato.",
+  sobrecargado:"La IA está ocupada. Intenta de nuevo en un momento.",
   red:"Sin conexión a internet. Tus listas y avisos siguen funcionando.",
   invalid_json:"No entendí bien la respuesta. Repite el mensaje, por favor."
 };
@@ -126,7 +126,7 @@ async function enviar(texto){
   const pensando = burbuja("ia pensando","Pensando…");
   ocupado=true;
   try{
-    const { respuesta, hechos } = await conversar(texto, ls.get("capataz-modelo", "") || MODELO_POR_DEFECTO);
+    const { respuesta, hechos } = await conversar(texto, ls.get("capataz-modelo", ""));
     pensando.classList.remove("pensando"); pensando.textContent = respuesta;
     if(hechos.length) pensando.append(el("div",{class:"hechos"}, hechos.map(h=>el("span",{class:"hecho"},h))));
     hablar(respuesta);
@@ -148,7 +148,7 @@ function renderPerfil(){
 }
 async function abrirAjustes(){
   $("#in-clave").value = ""; $("#in-modelo").value = ls.get("capataz-modelo", "");
-  $("#nota-clave").textContent = (await tieneClave()) ? "Hay una clave guardada: la conversación libre usa Claude. Escribe otra solo si quieres cambiarla." : "Opcional. Sin clave, Capataz funciona solo y sin internet para avisos, trabajos y consultas. Con clave, además conversa libremente.";
+  $("#nota-clave").textContent = (await tieneClave()) ? "Hay una clave guardada: Capataz conversa libremente. Escribe otra solo si quieres cambiarla." : "Opcional y gratis: entra a aistudio.google.com/apikey con tu cuenta de Google, toca “Create API key” y pégala aquí. Sin clave, Capataz igual anota avisos y trabajos sin internet.";
   if(plataforma==="electron"){ $("#fila-autoinicio").hidden=false; $("#chk-autoinicio").checked = await nativo.autoinicio(); }
   renderPerfil();
   dlg.showModal();

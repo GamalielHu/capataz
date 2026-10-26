@@ -3,10 +3,10 @@ const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, safeStorage, nati
 const path = require("node:path");
 const fs = require("node:fs");
 const Database = require("better-sqlite3");
+const { peticion, textoDe, codigoError } = require("./proveedores.js");
 
 const APP_ID = "bo.capataz.app";
 const ARRANQUE_OCULTO = "--oculto";
-const URL_API = "https://api.anthropic.com/v1/messages";
 const ICONO = path.join(__dirname, "..", "recursos", "icono.png");
 
 if (!app.requestSingleInstanceLock()) { app.quit(); process.exit(0); }
@@ -72,20 +72,17 @@ ipcMain.handle("clave:guardar", (_e, clave) => {
 });
 ipcMain.handle("clave:hay", () => !!leerClave());
 
-ipcMain.handle("ia", async (_e, cuerpo) => {
+ipcMain.handle("ia", async (_e, pedido) => {
   const clave = leerClave();
   if (!clave) throw new Error("sin_clave");
-  let r;
+  const { url, headers, body } = peticion(clave, pedido);
+  let r, datos;
   try {
-    r = await fetch(URL_API, {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": clave, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(90000)
-    });
+    r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(90000) });
+    datos = await r.json();
   } catch { throw new Error("red"); }
-  if (r.status !== 200) throw new Error(r.status === 401 || r.status === 403 ? "clave_invalida" : r.status === 429 ? "rate_limited" : r.status >= 500 ? "sobrecargado" : "api_" + r.status);
-  const datos = await r.json();
-  return (datos.content || []).filter(b => b.type === "text").map(b => b.text).join("");
+  if (r.status !== 200) throw new Error(codigoError(r.status, datos));
+  return textoDe(clave, datos);
 });
 
 /* ---------- Inicio con Windows ---------- */

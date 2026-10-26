@@ -1,7 +1,8 @@
 // Loop de conversación: system = reglas + perfil aprendido + estado; respuesta JSON con mutaciones de estado.
-import { enviar as llamarLLM } from "../adapters/llm.js";
+import { enviar as llamarLLM, tieneClave } from "../adapters/llm.js";
+import { interpretar, AYUDA } from "./interprete.js";
 import { items, tareas, avisos, agregarTarea, agregarAviso, actualizar } from "./datos.js";
-import { bloquePerfil, aprender } from "./memoria.js";
+import { bloquePerfil, aprender, listarPerfil } from "./memoria.js";
 import { cuandoTexto, localISO, ls } from "./util.js";
 
 const REGLAS = `Eres Capataz, el asistente personal de una persona que lleva proyectos de construcción en Bolivia. Hablas español latinoamericano, claro, breve y amable (1 a 3 frases normalmente). Tu trabajo: anotar trabajos (tareas), programar recordatorios con fecha y hora, marcar cosas como hechas, responder qué tiene pendiente y recordar lo que aprendes de la persona. También puedes conversar de cualquier tema útil.
@@ -47,7 +48,26 @@ async function aplicar(r){
 }
 
 // Devuelve {respuesta, hechos}. Lanza {code} si falla.
+// Sin clave (o sin internet) responde el intérprete propio; con clave conversa la IA.
+async function sinIA(texto){
+  const estado = {
+    tareas: tareas().filter(t=>!t.hecho).sort((a,b)=>b.creado-a.creado),
+    avisos: avisos().filter(a=>!a.hecho).sort((a,b)=>a.cuando-b.cuando),
+    perfil: listarPerfil(),
+    proyectos: [...new Set(tareas().map(t=>t.proyecto).filter(Boolean))]
+  };
+  const r = interpretar(texto, estado) || { respuesta: "No te entendí. " + AYUDA };
+  const hechos = (await aplicar(r)).filter(h => !/^Aprendí|^Olvidé/.test(h));
+  return { respuesta: r.respuesta, hechos };
+}
+
 export async function conversar(texto, modelo){
+  if (!(await tieneClave())) return sinIA(texto);
+  try { return await conIA(texto, modelo); }
+  catch(e){ if (e?.code === "red") return sinIA(texto); throw e; }
+}
+
+async function conIA(texto, modelo){
   const system = `${REGLAS}\n\n## Lo que sabes de la persona\n${await bloquePerfil()}\n\n## Estado actual\n${contexto()}`;
   const messages = [...turnos.slice(-MAX_TURNOS), { role:"user", content:texto }];
   const r = parsear(await llamarLLM({ system, messages, modelo }));

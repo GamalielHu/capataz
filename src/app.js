@@ -133,7 +133,7 @@ async function enviar(texto){
   }catch(e){
     pensando.remove();
     notaChat.textContent = ERRORES[e?.code] || "Se cortó la conexión. Vuelve a enviar el mensaje."; notaChat.classList.add("error"); $("#in-chat").value=texto;
-    if(e?.code==="sin_clave" || e?.code==="clave_invalida") abrirAjustes();
+    if(e?.code==="clave_invalida") abrirAjustes();
   }finally{ ocupado=false; }
 }
 $("#f-chat").addEventListener("submit", e => { e.preventDefault(); enviar($("#in-chat").value); });
@@ -148,7 +148,7 @@ function renderPerfil(){
 }
 async function abrirAjustes(){
   $("#in-clave").value = ""; $("#in-modelo").value = ls.get("capataz-modelo", "");
-  $("#nota-clave").textContent = (await tieneClave()) ? "Hay una clave guardada. Escribe otra solo si quieres cambiarla." : "Se guarda cifrada en este dispositivo.";
+  $("#nota-clave").textContent = (await tieneClave()) ? "Hay una clave guardada: la conversación libre usa Claude. Escribe otra solo si quieres cambiarla." : "Opcional. Sin clave, Capataz funciona solo y sin internet para avisos, trabajos y consultas. Con clave, además conversa libremente.";
   if(plataforma==="electron"){ $("#fila-autoinicio").hidden=false; $("#chk-autoinicio").checked = await nativo.autoinicio(); }
   renderPerfil();
   dlg.showModal();
@@ -177,5 +177,4 @@ alAccionar(async (accion, id) => {
     setSync(true, plataforma==="web" ? "Guardado en este navegador" : "Guardado en este dispositivo");
   }catch{ setSync(false, "No se pudo abrir la base de datos"); }
   await pedirPermiso();
-  if(!(await tieneClave())) notaChat.textContent = "Configura tu clave de API en Ajustes para conversar.";
 })();

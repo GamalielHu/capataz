@@ -6,7 +6,7 @@ import { CapacitorHttp } from "@capacitor/core";
 import { SecureStorage } from "@aparajita/capacitor-secure-storage";
 import { plataforma, nativo } from "./plataforma.js";
 import { ls } from "../core/util.js";
-import { peticion, textoDe, codigoError } from "../../electron/proveedores.js";
+import { peticion, textoDe, codigoError, modelosA, reintentable } from "../../electron/proveedores.js";
 
 const K = "capataz-clave-api";
 
@@ -29,6 +29,15 @@ export async function enviar(pedido){
     return nativo.ia(pedido).catch(e => { throw { code: String(e?.message || "").split("Error: ").pop() || "red" }; });
   const clave = await leerClave();
   if (!clave) throw { code:"sin_clave" };
+  let error;
+  for (const modelo of modelosA(clave, pedido.modelo)){
+    try { return await pedir(clave, { ...pedido, modelo }); }
+    catch(e){ error = e; if (!reintentable(e?.code)) throw e; }
+  }
+  throw error;
+}
+
+async function pedir(clave, pedido){
   const { url, headers, body } = peticion(clave, pedido, plataforma === "web");
   let estado, datos;
   try {

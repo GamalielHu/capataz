@@ -1,8 +1,17 @@
-// Proveedores de IA según la clave: "AIza…" = Google Gemini (tiene nivel gratuito), "sk-ant-…" = Anthropic Claude.
+// Proveedores de IA según la clave: "sk-ant-…" = Anthropic Claude; cualquier otra ("AIza…", "AQ.…") = Google Gemini (gratis).
 // Módulo CommonJS compartido por la ventana (vía esbuild) y el proceso principal de Electron.
-const MODELOS = { gemini: "gemini-flash-latest", anthropic: "claude-sonnet-5-5" };
+const MODELOS = { gemini: "gemini-flash-lite-latest", anthropic: "claude-sonnet-5-5" };
+// Si un modelo de Gemini está saturado o no existe, se prueba el siguiente.
+const RESPALDO_GEMINI = ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-3.5-flash"];
 
-const proveedorDe = clave => /^AIza/.test(clave) ? "gemini" : "anthropic";
+const proveedorDe = clave => /^sk-ant-/.test(clave) ? "anthropic" : "gemini";
+const reintentable = codigo => codigo === "sobrecargado" || codigo === "rate_limited" || codigo === "api_404";
+
+// Lista de pedidos a probar en orden.
+function modelosA(clave, modelo){
+  if (proveedorDe(clave) !== "gemini") return [modelo];
+  return modelo && /^gemini/.test(modelo) ? [modelo, ...RESPALDO_GEMINI.filter(m => m !== modelo)] : RESPALDO_GEMINI;
+}
 
 // {system, messages:[{role:"user"|"assistant", content}], modelo?, maxTokens?} → {url, headers, body}
 function peticion(clave, { system, messages, modelo, maxTokens = 4096 }, navegador = false){
@@ -40,4 +49,4 @@ function codigoError(estado, datos){
   return "api_" + estado;
 }
 
-module.exports = { MODELOS, proveedorDe, peticion, textoDe, codigoError };
+module.exports = { MODELOS, proveedorDe, peticion, textoDe, codigoError, modelosA, reintentable };

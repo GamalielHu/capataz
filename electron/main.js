@@ -3,7 +3,7 @@ const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, safeStorage, nati
 const path = require("node:path");
 const fs = require("node:fs");
 const Database = require("better-sqlite3");
-const { peticion, textoDe, codigoError } = require("./proveedores.js");
+const { peticion, textoDe, codigoError, modelosA, reintentable } = require("./proveedores.js");
 
 const APP_ID = "bo.capataz.app";
 const ARRANQUE_OCULTO = "--oculto";
@@ -72,9 +72,7 @@ ipcMain.handle("clave:guardar", (_e, clave) => {
 });
 ipcMain.handle("clave:hay", () => !!leerClave());
 
-ipcMain.handle("ia", async (_e, pedido) => {
-  const clave = leerClave();
-  if (!clave) throw new Error("sin_clave");
+async function pedirIA(clave, pedido) {
   const { url, headers, body } = peticion(clave, pedido);
   let r, datos;
   try {
@@ -83,6 +81,16 @@ ipcMain.handle("ia", async (_e, pedido) => {
   } catch { throw new Error("red"); }
   if (r.status !== 200) throw new Error(codigoError(r.status, datos));
   return textoDe(clave, datos);
+}
+ipcMain.handle("ia", async (_e, pedido) => {
+  const clave = leerClave();
+  if (!clave) throw new Error("sin_clave");
+  let error;
+  for (const modelo of modelosA(clave, pedido.modelo)) {
+    try { return await pedirIA(clave, { ...pedido, modelo }); }
+    catch (e) { error = e; if (!reintentable(e.message)) throw e; }
+  }
+  throw error;
 });
 
 /* ---------- Inicio con Windows ---------- */

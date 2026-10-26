@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Capataz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <h1>Capa<span>taz</span></h1>
+      <div class="brand-der"><div class="sync" id="sync"><i></i><span>Conectando…</span></div><button type="button" class="icon-btn mini" id="btn-ajustes" aria-label="Ajustes" title="Ajustes"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div>
+    </div>
+    <nav role="tablist">
+      <button role="tab" id="tab-hablar" aria-selected="true" data-p="hablar">Hablar</button>
+      <button role="tab" id="tab-trabajos" aria-selected="false" data-p="trabajos">Trabajos <b id="n-trabajos">0</b></button>
+      <button role="tab" id="tab-recordatorios" aria-selected="false" data-p="recordatorios">Avisos <b id="n-recordatorios">0</b></button>
+    </nav>
+  </div>
+</header>
+
+<section class="alarm" id="alarma" hidden><div class="wrap" id="alarma-lista"></div></section>
+
+<main>
+  <div class="wrap">
+    <section class="panel" id="p-hablar">
+      <div class="chat" id="chat">
+        <div class="intro" id="intro">
+          <h2>¿Qué hay que hacer hoy?</h2>
+          <p>Dime lo que necesitas con tus palabras. Anoto trabajos, te pongo avisos con hora y te respondo lo que tengas pendiente.</p>
+          <div class="ejemplos" id="ejemplos">
+            <button type="button">Recuérdame mañana a las 7:30 llamar al proveedor de cemento</button>
+            <button type="button">Anota: comprar 20 bolsas de cemento y fierro de 3/8 para la obra</button>
+            <button type="button">¿Qué trabajos tengo pendientes?</button>
+          </div>
+        </div>
+      </div>
+      <div class="composer">
+        <form id="f-chat">
+          <input id="in-chat" autocomplete="off" placeholder="Escribe o dicta un mensaje…" aria-label="Mensaje">
+          <button type="button" class="icon-btn" id="btn-mic" aria-label="Dictar por voz" title="Dictar por voz"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+          <button type="submit" class="icon-btn primary" id="btn-enviar" aria-label="Enviar"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg></button>
+        </form>
+        <div class="opciones">
+          <label><input type="checkbox" id="chk-voz"> Leer respuestas en voz alta</label>
+          <span class="nota" id="nota-chat"></span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="p-trabajos" hidden>
+      <form class="add" id="f-tarea">
+        <input class="grow" id="in-tarea" placeholder="Nuevo trabajo…" aria-label="Trabajo" required>
+        <input class="proj" id="in-proyecto" placeholder="Proyecto (opcional)" aria-label="Proyecto" list="proyectos">
+        <datalist id="proyectos"></datalist>
+        <button class="btn" type="submit">Añadir</button>
+      </form>
+      <div id="lista-trabajos"></div>
+    </section>
+
+    <section class="panel" id="p-recordatorios" hidden>
+      <form class="add" id="f-rec">
+        <input class="grow" id="in-rec" placeholder="¿Qué te recuerdo?" aria-label="Aviso" required>
+        <input type="datetime-local" id="in-cuando" aria-label="Fecha y hora" required>
+        <button class="btn" type="submit">Programar</button>
+      </form>
+      <p class="nota"><span id="nota-avisos">Los avisos suenan aunque cierres la app.</span></p>
+      <div id="lista-recordatorios"></div>
+    </section>
+  </div>
+</main>
+
+
+<dialog id="ajustes">
+  <form method="dialog" class="ajustes">
+    <h2>Ajustes</h2>
+    <label>Clave de API de Anthropic
+      <input id="in-clave" type="password" autocomplete="off" placeholder="sk-ant-…">
+    </label>
+    <p class="nota" id="nota-clave">Se guarda cifrada en este dispositivo.</p>
+    <label>Modelo
+      <input id="in-modelo" autocomplete="off" placeholder="claude-sonnet-5-5">
+    </label>
+    <label class="fila" id="fila-autoinicio" hidden><input type="checkbox" id="chk-autoinicio"> Iniciar con Windows</label>
+    <h3>Lo que Capataz sabe de ti</h3>
+    <ul class="lista" id="lista-perfil"></ul>
+    <div class="acciones">
+      <button type="button" class="btn" id="btn-guardar-ajustes">Guardar</button>
+      <button value="cerrar" class="del">Cerrar</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

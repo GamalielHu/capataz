@@ -1,0 +1,19 @@
+{
+  "appId": "bo.capataz.app",
+  "appName": "Capataz",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": false
+    },
+    "LocalNotifications": {
+      "iconColor": "#1E4ED0"
+    },
+    "CapacitorSQLite": {
+      "androidIsEncryption": false
+    }
+  }
+}

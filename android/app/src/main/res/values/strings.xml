@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Capataz</string>
+    <string name="title_activity_main">Capataz</string>
+    <string name="package_name">bo.capataz.app</string>
+    <string name="custom_url_scheme">bo.capataz.app</string>
+</resources>

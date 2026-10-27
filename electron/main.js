@@ -93,6 +93,7 @@ ipcMain.handle("clave:guardar", (_e, clave) => {
     ? safeStorage.encryptString(clave) : Buffer.concat([SIN_CIFRAR, Buffer.from(clave)]), { mode: 0o600 });
 });
 ipcMain.handle("clave:hay", () => !!leerClave());
+ipcMain.handle("clave:gemini", () => { const c = leerClave(); return c && proveedorDe(c) === "gemini" ? c : null; });
 
 async function pedirIA(clave, pedido) {
   const { url, headers, body } = peticion(clave, pedido);
@@ -115,12 +116,12 @@ ipcMain.handle("ia", async (_e, pedido) => {
   throw error;
 });
 
-ipcMain.handle("voz", async (_e, texto) => {
+ipcMain.handle("voz", async (_e, texto, voz) => {
   const clave = leerClave();
   if (!clave || proveedorDe(clave) !== "gemini") throw new Error("sin_audio");
   let error;
   for (const modelo of MODELOS_VOZ) {
-    const { url, headers, body } = peticionVoz(clave, texto, modelo);
+    const { url, headers, body } = peticionVoz(clave, texto, modelo, voz || undefined);
     try {
       const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
       const datos = await r.json();

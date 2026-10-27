@@ -15,7 +15,8 @@ function modelosA(clave, modelo){
 
 // {system, messages:[{role:"user"|"assistant", content}], modelo?, maxTokens?, audio?:{mime,data}, json?} → {url, headers, body}
 // audio (solo Gemini) se adjunta al último mensaje; json:false pide texto libre.
-function peticion(clave, { system, messages, modelo, maxTokens = 4096, audio, json = true }, navegador = false){
+// imagen:{mime,data} se adjunta al último mensaje (Gemini y Claude).
+function peticion(clave, { system, messages, modelo, maxTokens = 4096, audio, imagen, json = true }, navegador = false){
   const p = proveedorDe(clave);
   if (audio && p !== "gemini") throw Object.assign(new Error("sin_audio"), { code: "sin_audio" });
   const model = modelo && (p === "gemini") === /^gemini/.test(modelo) ? modelo : MODELOS[p];
@@ -26,6 +27,7 @@ function peticion(clave, { system, messages, modelo, maxTokens = 4096, audio, js
       systemInstruction: { parts: [{ text: system }] },
       contents: messages.map((m, i) => ({ role: m.role === "assistant" ? "model" : "user", parts: [
         ...(audio && i === messages.length - 1 ? [{ inline_data: { mime_type: audio.mime, data: audio.data } }] : []),
+        ...(imagen && i === messages.length - 1 ? [{ inline_data: { mime_type: imagen.mime, data: imagen.data } }] : []),
         { text: m.content }] })),
       generationConfig: { ...(json ? { responseMimeType: "application/json" } : {}), maxOutputTokens: maxTokens, temperature: audio ? 0 : 0.4 }
     }
@@ -34,7 +36,8 @@ function peticion(clave, { system, messages, modelo, maxTokens = 4096, audio, js
     url: "https://api.anthropic.com/v1/messages",
     headers: { "content-type": "application/json", "x-api-key": clave, "anthropic-version": "2023-06-01",
       ...(navegador ? { "anthropic-dangerous-direct-browser-access": "true" } : {}) },
-    body: { model, max_tokens: maxTokens, system, messages }
+    body: { model, max_tokens: maxTokens, system, messages: imagen ? messages.map((m, i) => i < messages.length - 1 ? m : { role: m.role, content: [
+      { type: "image", source: { type: "base64", media_type: imagen.mime, data: imagen.data } }, { type: "text", text: m.content }] }) : messages }
   };
 }
 

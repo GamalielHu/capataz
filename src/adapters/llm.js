@@ -62,17 +62,24 @@ export async function transcribir(audio){
 }
 
 // Voz natural con Gemini: devuelve {mime, data base64} o lanza {code}.
-export async function sintetizar(texto){
+export async function sintetizar(texto, voz){
   if (plataforma === "electron")
-    return nativo.voz(texto).catch(e => { throw { code: String(e?.message || "").split("Error: ").pop() || "red" }; });
+    return nativo.voz(texto, voz).catch(e => { throw { code: String(e?.message || "").split("Error: ").pop() || "red" }; });
   const clave = await leerClave();
   if (!clave || proveedorDe(clave) !== "gemini") throw { code:"sin_audio" };
   let error;
   for (const modelo of MODELOS_VOZ){
     try {
-      const audio = audioDe(await pedir(clave, null, peticionVoz(clave, texto, modelo)));
+      const audio = audioDe(await pedir(clave, null, peticionVoz(clave, texto, modelo, voz)));
       if (audio) return audio; error = { code:"sin_audio" };
     } catch(e){ error = e; if (!reintentable(e?.code)) throw e; }
   }
   throw error;
+}
+
+// Clave de Gemini para la voz en tiempo real (WebSocket directo a Google). null si no hay o es de Claude.
+export async function claveGemini(){
+  if (plataforma === "electron") return nativo.claveGemini();
+  const clave = await leerClave();
+  return clave && proveedorDe(clave) === "gemini" ? clave : null;
 }

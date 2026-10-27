@@ -122,7 +122,8 @@ function aWav({ mime, data }){
 
 let reproductor = null, cortar = null;
 async function hablarNatural(texto){
-  const audio = await sintetizar(texto.slice(0, 700));
+  let voz; try { voz = JSON.parse(localStorage.getItem("capataz-voz-nombre")) || undefined; } catch {}
+  const audio = await sintetizar(texto.slice(0, 700), voz);
   const url = URL.createObjectURL(aWav(audio));
   try {
     await new Promise((ok, mal) => {

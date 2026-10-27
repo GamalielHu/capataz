@@ -2,7 +2,8 @@
 import { $, el, ls, cuandoTexto, localISO } from "./core/util.js";
 import { cargar, alCambiar, recargar, tareas, avisos, agregarTarea, agregarAviso, actualizar, borrar, alternarHecho, posponer } from "./core/datos.js";
 import { cargarPerfil, listarPerfil, olvidar } from "./core/memoria.js";
-import { conversar, borrarHistorial } from "./core/ia.js";
+import { conversar, borrarHistorial, agregarTurno } from "./core/ia.js";
+import { iniciarVozViva } from "./core/vozViva.js";
 import { revisarAlarmas } from "./core/alarmas.js";
 import { plataforma, nativo } from "./adapters/plataforma.js";
 import { pedirPermiso, alAccionar } from "./adapters/notifications.js";
@@ -103,6 +104,26 @@ btnMic.addEventListener("click", async () => {
   }finally{ grabando=false; btnMic.classList.remove("grabando"); }
 });
 
+/* ---------- Fotos ---------- */
+// Reduce la foto (lado mayor 1280 px, JPEG) para enviarla rápido; guarda además una miniatura para el historial.
+let imagenAdjunta = null;
+function reducir(img, lado, calidad){
+  const k = Math.min(1, lado / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas"); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", calidad);
+}
+$("#in-foto").addEventListener("change", async e => {
+  const f = e.target.files?.[0]; e.target.value = ""; if(!f) return;
+  const url = URL.createObjectURL(f), img = new Image();
+  await new Promise((ok, mal) => { img.onload = ok; img.onerror = mal; img.src = url; }).catch(()=>{});
+  URL.revokeObjectURL(url); if(!img.naturalWidth) return;
+  const grande = reducir(img, 1280, .82);
+  imagenAdjunta = { mime:"image/jpeg", data:grande.split(",")[1], mini:reducir(img, 240, .7) };
+  $("#adjunto-img").src = grande; $("#adjunto").hidden = false; $("#in-chat").focus();
+});
+$("#adjunto-quitar").addEventListener("click", () => { imagenAdjunta = null; $("#adjunto").hidden = true; });
+
 /* ---------- Conversación con la IA ---------- */
 const chat = $("#chat");
 let ocupado=false;
@@ -111,10 +132,14 @@ function conHechos(b, hechos){ if(hechos?.length) b.append(el("div",{class:"hech
 
 // Historial visible: se conserva entre sesiones (últimos 120 mensajes).
 let historialChat = ls.get("capataz-chat", []);
-function guardarChat(m){ historialChat.push(m); historialChat = historialChat.slice(-120); ls.set("capataz-chat", historialChat); }
+function guardarChat(m){
+  historialChat.push(m); historialChat = historialChat.slice(-120);
+  historialChat.slice(0, -30).forEach(x => delete x.mini); // miniaturas solo en los últimos 30
+  ls.set("capataz-chat", historialChat);
+}
 if(historialChat.length){
   $("#intro")?.remove();
-  for(const m of historialChat) chat.append(conHechos(el("div",{class:"msg "+m.de}, m.texto), m.hechos));
+  for(const m of historialChat) chat.append(conHechos(el("div",{class:"msg "+m.de}, m.mini ? el("img",{src:m.mini, alt:"Foto"}) : null, m.texto), m.hechos));
   requestAnimationFrame(() => chat.lastElementChild?.scrollIntoView({block:"end"}));
 }
 
@@ -130,14 +155,17 @@ const ERRORES = {
 // Devuelve la respuesta (o null si falló).
 async function enviar(texto, { voz = false } = {}){
   texto = String(texto||"").trim();
-  if(!texto || ocupado) return null;
+  const imagen = voz ? null : imagenAdjunta;
+  if((!texto && !imagen) || ocupado) return null;
+  if(imagen){ imagenAdjunta = null; $("#adjunto").hidden = true; }
   $("#intro")?.remove();
   $("#in-chat").value=""; notaChat.textContent=""; notaChat.classList.remove("error");
-  burbuja("yo", texto); guardarChat({ de:"yo", texto });
+  const b = burbuja("yo", texto); if(imagen) b.prepend(el("img",{src:imagen.mini, alt:"Foto"}));
+  guardarChat({ de:"yo", texto, ...(imagen ? { mini:imagen.mini } : {}) });
   const pensando = burbuja("ia pensando","Pensando…");
   ocupado=true;
   try{
-    const { respuesta, hechos } = await conversar(texto, ls.get("capataz-modelo", ""), { voz });
+    const { respuesta, hechos } = await conversar(texto, ls.get("capataz-modelo", ""), { voz, imagen });
     pensando.classList.remove("pensando"); pensando.textContent = respuesta; conHechos(pensando, hechos);
     guardarChat({ de:"ia", texto:respuesta, hechos });
     hablar(respuesta);
@@ -145,6 +173,7 @@ async function enviar(texto, { voz = false } = {}){
   }catch(e){
     pensando.remove();
     notaChat.textContent = ERRORES[e?.code] || "Se cortó la conexión. Vuelve a enviar el mensaje."; notaChat.classList.add("error"); $("#in-chat").value=texto;
+    if(imagen){ imagenAdjunta = imagen; $("#adjunto").hidden = false; }
     if(e?.code==="clave_invalida") abrirAjustes();
     return { error: ERRORES[e?.code] || "Se cortó la conexión." };
   }finally{ ocupado=false; }
@@ -179,14 +208,39 @@ async function cicloVoz(){
     await decir(decirEsto);
   }
 }
-function abrirVoz(){
-  if(!puedeDictar()){ notaChat.textContent = consejoDictado; return; }
-  modoVoz.activo = true; capa.hidden = false; abrir("hablar"); cicloVoz();
+// Primero intenta la voz en tiempo real (Gemini Live); si no hay clave de Gemini o falla, usa escuchar/responder por turnos.
+let viva = null;
+async function abrirVoz(){
+  modoVoz.activo = true; capa.hidden = false; abrir("hablar");
+  estadoVoz("pensando", "Conectando…");
+  try{
+    viva = await iniciarVozViva({ voz: ls.get("capataz-voz-nombre", "Charon"), interrumpir: ls.get("capataz-interrumpir", false), eventos:{
+      estado: e => { if(modoVoz.activo) estadoVoz(e); },
+      oyendo: t => { vozTexto.textContent = t; },
+      diciendo: t => { vozTexto.textContent = t; },
+      turno: ({ usuario, respuesta, hechos }) => {
+        $("#intro")?.remove();
+        if(usuario){ burbuja("yo", usuario); guardarChat({ de:"yo", texto:usuario }); }
+        if(respuesta || hechos.length){ conHechos(burbuja("ia", respuesta || "Listo."), hechos); guardarChat({ de:"ia", texto:respuesta || "Listo.", hechos }); }
+        if(usuario && respuesta) agregarTurno(usuario, respuesta);
+      },
+      error: code => { viva = null; if(!modoVoz.activo) return;
+        estadoVoz("pausa", code === "clave_invalida" ? "La clave de Gemini no sirvió para la voz en vivo." : "Se cortó la llamada. Toca el círculo para volver a conectar."); modoVoz.reconectar = true; }
+    }});
+    modoVoz.vivo = true;
+  }catch(e){
+    viva = null; modoVoz.vivo = false;
+    if(!modoVoz.activo) return;
+    if(!puedeDictar()){ estadoVoz("pausa", e?.code === "not-allowed" ? "Necesito permiso del micrófono." : consejoDictado); return; }
+    cicloVoz();
+  }
 }
-function cerrarVoz(){ modoVoz.activo = false; detener(); callar(); capa.hidden = true; }
+function cerrarVoz(){ modoVoz.activo = false; modoVoz.vivo = false; viva?.cerrar(); viva = null; detener(); callar(); capa.hidden = true; }
 $("#btn-voz").addEventListener("click", abrirVoz);
 $("#voz-cerrar").addEventListener("click", cerrarVoz);
 orbe.addEventListener("click", () => {
+  if(modoVoz.reconectar){ modoVoz.reconectar = false; abrirVoz(); return; }
+  if(viva){ if(viva.hablandoAhora()) viva.interrumpir(); return; }
   if(modoVoz.estado === "hablando"){ callar(); }               // interrumpe y vuelve a escuchar
   else if(modoVoz.estado === "escuchando"){ detener(); }       // ya terminé de hablar
   else if(modoVoz.estado === "pausa"){ cicloVoz(); }
@@ -201,6 +255,7 @@ function renderPerfil(){
 }
 async function abrirAjustes(){
   $("#in-clave").value = ""; $("#in-modelo").value = ls.get("capataz-modelo", "");
+  $("#sel-voz").value = ls.get("capataz-voz-nombre", "Charon"); $("#chk-interrumpir").checked = ls.get("capataz-interrumpir", false);
   $("#nota-clave").textContent = (await tieneClave()) ? "Hay una clave guardada: Capataz conversa libremente. Escribe otra solo si quieres cambiarla." : "Opcional y gratis: entra a aistudio.google.com/apikey con tu cuenta de Google, toca “Create API key” y pégala aquí. Sin clave, Capataz igual anota avisos y trabajos sin internet.";
   if(plataforma==="electron"){ $("#fila-autoinicio").hidden=false; $("#chk-autoinicio").checked = await nativo.autoinicio(); }
   renderPerfil();
@@ -215,6 +270,8 @@ $("#btn-guardar-ajustes").addEventListener("click", async () => {
   const clave = $("#in-clave").value.trim();
   if(clave) try { await guardarClave(clave); reiniciarVozNatural(); } catch { $("#nota-clave").textContent = "No se pudo guardar la clave en este equipo."; return; }
   ls.set("capataz-modelo", $("#in-modelo").value.trim());
+  ls.set("capataz-voz-nombre", $("#sel-voz").value);
+  ls.set("capataz-interrumpir", $("#chk-interrumpir").checked);
   if(plataforma==="electron") await nativo.autoinicio($("#chk-autoinicio").checked);
   dlg.close();
 });

@@ -37,7 +37,7 @@ export async function iniciarVozViva({ voz = "Charon", interrumpir = false, even
   const sistema = await sistemaViva();
   let ws = null, abierto = false, cerrado = false, modeloIdx = 0;
   let siguiente = 0, fuentes = new Set(), silenciado = false;
-  let oido = "", dicho = "", hechos = [];
+  let oido = "", dicho = "", hechos = [], cerrarTras = false;
 
   const hablando = () => ctxVoz.currentTime < siguiente;
   const emitir = (n, ...a) => { try { eventos?.[n]?.(...a); } catch {} };
@@ -103,8 +103,8 @@ export async function iniciarVozViva({ voz = "Charon", interrumpir = false, even
         emitir("estado", "pensando");
         const respuestas = [];
         for (const f of m.toolCall.functionCalls || []){
-          const { resultado, hechos:h } = await ejecutarHerramienta(f.name, f.args || {});
-          hechos.push(...h); respuestas.push({ id:f.id, name:f.name, response:{ result:resultado } });
+          const { resultado, hechos:h, cerrarVoz } = await ejecutarHerramienta(f.name, f.args || {});
+          hechos.push(...h); if (cerrarVoz) cerrarTras = true; respuestas.push({ id:f.id, name:f.name, response:{ result:resultado } });
         }
         ws.send(JSON.stringify({ toolResponse:{ functionResponses:respuestas } }));
         return;
@@ -114,7 +114,11 @@ export async function iniciarVozViva({ voz = "Charon", interrumpir = false, even
       if (sc.inputTranscription?.text){ oido += sc.inputTranscription.text; emitir("oyendo", oido.trim()); emitir("estado", "pensando"); }
       if (sc.outputTranscription?.text){ dicho += sc.outputTranscription.text; emitir("diciendo", dicho.trim()); }
       for (const p of sc.modelTurn?.parts || []) if (p.inlineData?.data) reproducir(p.inlineData.data);
-      if (sc.turnComplete) cerrarTurno();
+      if (sc.turnComplete){
+        cerrarTurno();
+        // Abrió música, una llamada o una app: termina la conversación cuando acabe de hablar.
+        if (cerrarTras){ cerrarTras = false; const fin = () => hablando() ? setTimeout(fin, 300) : emitir("terminar"); fin(); }
+      }
     };
     ws.onclose = ev => {
       window.__depurarVoz?.({ cierre:{ code:ev.code, reason:ev.reason } }, MODELOS[modeloIdx]);

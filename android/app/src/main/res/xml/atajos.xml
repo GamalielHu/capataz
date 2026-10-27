@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="hablar"
+        android:enabled="true"
+        android:icon="@drawable/widget_mic_atajo"
+        android:shortcutShortLabel="@string/atajo_hablar"
+        android:shortcutLongLabel="@string/atajo_hablar">
+        <intent
+            android:action="bo.capataz.app.HABLAR"
+            android:targetPackage="bo.capataz.app"
+            android:targetClass="bo.capataz.app.MainActivity" />
+    </shortcut>
+</shortcuts>

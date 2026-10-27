@@ -9,6 +9,7 @@ import { plataforma, nativo } from "./adapters/plataforma.js";
 import { pedirPermiso, alAccionar } from "./adapters/notifications.js";
 import { dictar, detener, puedeDictar, consejoDictado, hablar as decir, callar, reiniciarVozNatural } from "./adapters/voice.js";
 import { guardarClave, tieneClave } from "./adapters/llm.js";
+import { alPedirHablar } from "./adapters/dispositivo.js";
 
 const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
 function setSync(on, texto){ const s=$("#sync"); s.classList.toggle("on", on); s.querySelector("span").textContent=texto; }
@@ -271,6 +272,7 @@ async function cicloVoz(){
     const decirEsto = r?.respuesta || r?.error || "No te entendí.";
     estadoVoz("hablando", decirEsto);
     await decir(decirEsto);
+    if(r?.hechos?.cerrarVoz){ cerrarVoz(); return; } // abrió música, una llamada o una app
   }
 }
 // Primero intenta la voz en tiempo real (Gemini Live); si no hay clave de Gemini o falla, usa escuchar/responder por turnos.
@@ -289,6 +291,7 @@ async function abrirVoz(){
         if(respuesta || hechos.length){ conHechos(burbuja("ia", respuesta || "Listo."), hechos); guardarChat({ de:"ia", texto:respuesta || "Listo.", hechos }); }
         if(usuario && respuesta) agregarTurno(usuario, respuesta);
       },
+      terminar: () => { if(modoVoz.activo) cerrarVoz(); },
       error: code => { viva = null; if(!modoVoz.activo) return;
         estadoVoz("pausa", code === "clave_invalida" ? "La clave de Gemini no sirvió para la voz en vivo." : "Se cortó la llamada. Toca el círculo para volver a conectar."); modoVoz.reconectar = true; }
     }});
@@ -352,4 +355,6 @@ alAccionar(async (accion, id) => {
     setSync(true, plataforma==="web" ? "Guardado en este navegador" : "Guardado en este dispositivo");
   }catch{ setSync(false, "No se pudo abrir la base de datos"); }
   await pedirPermiso();
+  // Widget / atajo "Hablar" (Android) y Ctrl+Alt+Espacio (Windows): abre directo la conversación por voz.
+  alPedirHablar(() => { if(!modoVoz.activo) abrirVoz(); });
 })();

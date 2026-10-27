@@ -1,5 +1,5 @@
 // Proceso principal: ventana, bandeja del sistema, inicio con Windows, base SQLite, avisos nativos y llamadas a la API.
-const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, safeStorage, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, safeStorage, nativeImage, shell, globalShortcut } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const Database = require("better-sqlite3");
@@ -151,12 +151,19 @@ function crearVentana() {
   ventana.on("close", e => { if (!saliendo) { e.preventDefault(); ventana.hide(); } });
   ventana.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: "deny" }; });
 }
+// Acciones del asistente: abre enlaces con el programa del sistema (Spotify, WhatsApp, Maps, navegador, teléfono).
+ipcMain.handle("abrir", async (_e, url) => {
+  if (!/^(https?:|spotify:|tel:|mailto:)/i.test(String(url))) return false;
+  try { await shell.openExternal(url); return true; } catch { return false; }
+});
+function hablar() { mostrar(); ventana.webContents.send("hablar"); }
 function mostrar() { if (ventana.isMinimized()) ventana.restore(); ventana.show(); ventana.focus(); }
 function crearBandeja() {
   bandeja = new Tray(nativeImage.createFromPath(ICONO).resize({ width: 16, height: 16 }));
   bandeja.setToolTip("Capataz");
   const menu = () => Menu.buildFromTemplate([
     { label: "Abrir Capataz", click: mostrar },
+    { label: "Hablar con Capataz (Ctrl+Alt+Espacio)", click: hablar },
     { label: "Iniciar con Windows", type: "checkbox", checked: app.getLoginItemSettings({ args: [ARRANQUE_OCULTO] }).openAtLogin,
       click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: [ARRANQUE_OCULTO] }) },
     { type: "separator" },
@@ -169,6 +176,7 @@ function crearBandeja() {
 
 app.on("second-instance", () => mostrar());
 app.on("before-quit", () => { saliendo = true; });
+app.on("will-quit", () => globalShortcut.unregisterAll());
 app.whenReady().then(() => {
   abrirBase();
   if (!app.getLoginItemSettings({ args: [ARRANQUE_OCULTO] }).openAtLogin && !fs.existsSync(path.join(app.getPath("userData"), ".instalado"))) {
@@ -177,6 +185,7 @@ app.whenReady().then(() => {
   }
   crearVentana();
   crearBandeja();
+  globalShortcut.register("CommandOrControl+Alt+Space", hablar);
   revisarAvisos();
   setInterval(() => { revisarAvisos(); resumenDiario(); }, 30000);
 });

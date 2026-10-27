@@ -10,7 +10,8 @@ const PERMISOS = [
   "android.permission.WAKE_LOCK",
   "android.permission.VIBRATE",
   "android.permission.RECORD_AUDIO",
-  "android.permission.MODIFY_AUDIO_SETTINGS"
+  "android.permission.MODIFY_AUDIO_SETTINGS",
+  "com.android.alarm.permission.SET_ALARM"
 ];
 const QUERIES = `    <queries>
         <intent><action android:name="android.speech.RecognitionService" /></intent>

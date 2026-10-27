@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld("capatazNativo", {
   tieneClave: () => ipcRenderer.invoke("clave:hay"),
   claveGemini: () => ipcRenderer.invoke("clave:gemini"),
   autoinicio: activar => ipcRenderer.invoke("autoinicio", activar),
+  abrir: url => ipcRenderer.invoke("abrir", url),
+  alHablar: cb => ipcRenderer.on("hablar", () => cb()),
   avisosCambiaron: () => ipcRenderer.send("avisos:cambiaron"),
   alAccionar: cb => ipcRenderer.on("aviso:accion", (_e, accion, id) => cb(accion, id))
 });

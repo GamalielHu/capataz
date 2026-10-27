@@ -6,7 +6,7 @@ import { CapacitorHttp } from "@capacitor/core";
 import { SecureStorage } from "@aparajita/capacitor-secure-storage";
 import { plataforma, nativo } from "./plataforma.js";
 import { ls } from "../core/util.js";
-import { peticion, textoDe, codigoError, modelosA, reintentable } from "../../electron/proveedores.js";
+import { peticion, textoDe, codigoError, modelosA, reintentable, MODELOS_VOZ, peticionVoz, audioDe, proveedorDe } from "../../electron/proveedores.js";
 
 const K = "capataz-clave-api";
 
@@ -37,8 +37,8 @@ export async function enviar(pedido){
   throw error;
 }
 
-async function pedir(clave, pedido){
-  const { url, headers, body } = peticion(clave, pedido, plataforma === "web");
+async function pedir(clave, pedido, armado){
+  const { url, headers, body } = armado || peticion(clave, pedido, plataforma === "web");
   let estado, datos;
   try {
     if (plataforma === "android"){
@@ -50,5 +50,29 @@ async function pedir(clave, pedido){
     }
   } catch { throw { code:"red" }; }
   if (estado !== 200) throw { code: codigoError(estado, datos) };
-  return textoDe(clave, datos);
+  return armado ? datos : textoDe(clave, datos);
+}
+
+// Transcribe audio con Gemini (para dictar donde no hay reconocimiento del sistema, como en la PC).
+export async function transcribir(audio){
+  const t = await enviar({
+    system: "Transcribes audio en español latinoamericano. Devuelve solo el texto dicho, sin comillas ni comentarios. Si no se entiende nada, devuelve vacío.",
+    messages: [{ role:"user", content:"Transcribe este audio." }], audio, json:false, maxTokens:1024 });
+  return t.trim().replace(/^["“]|["”]$/g, "");
+}
+
+// Voz natural con Gemini: devuelve {mime, data base64} o lanza {code}.
+export async function sintetizar(texto){
+  if (plataforma === "electron")
+    return nativo.voz(texto).catch(e => { throw { code: String(e?.message || "").split("Error: ").pop() || "red" }; });
+  const clave = await leerClave();
+  if (!clave || proveedorDe(clave) !== "gemini") throw { code:"sin_audio" };
+  let error;
+  for (const modelo of MODELOS_VOZ){
+    try {
+      const audio = audioDe(await pedir(clave, null, peticionVoz(clave, texto, modelo)));
+      if (audio) return audio; error = { code:"sin_audio" };
+    } catch(e){ error = e; if (!reintentable(e?.code)) throw e; }
+  }
+  throw error;
 }

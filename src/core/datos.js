@@ -12,9 +12,9 @@ export const alCambiar = fn => oyentes.add(fn);
 export const tareas = () => items.filter(x=>x.tipo==="tarea");
 export const avisos = () => items.filter(x=>x.tipo==="recordatorio");
 
-function cambio(tocaAvisos){
+function cambio(){
   oyentes.forEach(fn => fn());
-  if (tocaAvisos) sincronizar(avisos());
+  sincronizar(avisos(), tareas());
 }
 
 export async function cargar(){

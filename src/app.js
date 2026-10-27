@@ -2,11 +2,11 @@
 import { $, el, ls, cuandoTexto, localISO } from "./core/util.js";
 import { cargar, alCambiar, recargar, tareas, avisos, agregarTarea, agregarAviso, actualizar, borrar, alternarHecho, posponer } from "./core/datos.js";
 import { cargarPerfil, listarPerfil, olvidar } from "./core/memoria.js";
-import { conversar } from "./core/ia.js";
+import { conversar, borrarHistorial } from "./core/ia.js";
 import { revisarAlarmas } from "./core/alarmas.js";
 import { plataforma, nativo } from "./adapters/plataforma.js";
 import { pedirPermiso, alAccionar } from "./adapters/notifications.js";
-import { dictar, detener, puedeDictar, consejoDictado, hablar as decir } from "./adapters/voice.js";
+import { dictar, detener, puedeDictar, consejoDictado, hablar as decir, callar, reiniciarVozNatural } from "./adapters/voice.js";
 import { guardarClave, tieneClave } from "./adapters/llm.js";
 
 const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
@@ -86,7 +86,7 @@ $("#f-rec").addEventListener("submit", async e => { e.preventDefault();
 /* ---------- Voz ---------- */
 const chkVoz = $("#chk-voz"); chkVoz.checked = ls.get("capataz-voz", false);
 chkVoz.addEventListener("change", () => ls.set("capataz-voz", chkVoz.checked));
-function hablar(texto){ if(chkVoz.checked) decir(texto); }
+function hablar(texto){ if(chkVoz.checked && !modoVoz.activo) decir(texto); }
 
 const btnMic = $("#btn-mic"), notaChat = $("#nota-chat");
 let grabando=false;
@@ -107,6 +107,16 @@ btnMic.addEventListener("click", async () => {
 const chat = $("#chat");
 let ocupado=false;
 function burbuja(cls, texto){ const b=el("div",{class:"msg "+cls}, texto); chat.append(b); b.scrollIntoView({block:"end",behavior:"smooth"}); return b; }
+function conHechos(b, hechos){ if(hechos?.length) b.append(el("div",{class:"hechos"}, hechos.map(h=>el("span",{class:"hecho"},h)))); return b; }
+
+// Historial visible: se conserva entre sesiones (últimos 120 mensajes).
+let historialChat = ls.get("capataz-chat", []);
+function guardarChat(m){ historialChat.push(m); historialChat = historialChat.slice(-120); ls.set("capataz-chat", historialChat); }
+if(historialChat.length){
+  $("#intro")?.remove();
+  for(const m of historialChat) chat.append(conHechos(el("div",{class:"msg "+m.de}, m.texto), m.hechos));
+  requestAnimationFrame(() => chat.lastElementChild?.scrollIntoView({block:"end"}));
+}
 
 const ERRORES = {
   sin_clave:"Para conversar libremente, pon una clave gratuita de Gemini en Ajustes (engranaje arriba).",
@@ -117,27 +127,70 @@ const ERRORES = {
   invalid_json:"No entendí bien la respuesta. Repite el mensaje, por favor."
 };
 
-async function enviar(texto){
+// Devuelve la respuesta (o null si falló).
+async function enviar(texto, { voz = false } = {}){
   texto = String(texto||"").trim();
-  if(!texto || ocupado) return;
+  if(!texto || ocupado) return null;
   $("#intro")?.remove();
   $("#in-chat").value=""; notaChat.textContent=""; notaChat.classList.remove("error");
-  burbuja("yo", texto);
+  burbuja("yo", texto); guardarChat({ de:"yo", texto });
   const pensando = burbuja("ia pensando","Pensando…");
   ocupado=true;
   try{
-    const { respuesta, hechos } = await conversar(texto, ls.get("capataz-modelo", ""));
-    pensando.classList.remove("pensando"); pensando.textContent = respuesta;
-    if(hechos.length) pensando.append(el("div",{class:"hechos"}, hechos.map(h=>el("span",{class:"hecho"},h))));
+    const { respuesta, hechos } = await conversar(texto, ls.get("capataz-modelo", ""), { voz });
+    pensando.classList.remove("pensando"); pensando.textContent = respuesta; conHechos(pensando, hechos);
+    guardarChat({ de:"ia", texto:respuesta, hechos });
     hablar(respuesta);
+    return { respuesta, hechos };
   }catch(e){
     pensando.remove();
     notaChat.textContent = ERRORES[e?.code] || "Se cortó la conexión. Vuelve a enviar el mensaje."; notaChat.classList.add("error"); $("#in-chat").value=texto;
     if(e?.code==="clave_invalida") abrirAjustes();
+    return { error: ERRORES[e?.code] || "Se cortó la conexión." };
   }finally{ ocupado=false; }
 }
 $("#f-chat").addEventListener("submit", e => { e.preventDefault(); enviar($("#in-chat").value); });
-$("#ejemplos").addEventListener("click", e => { if(e.target.matches("button")) enviar(e.target.textContent); });
+$("#ejemplos")?.addEventListener("click", e => { if(e.target.matches("button")) enviar(e.target.textContent); });
+
+/* ---------- Modo conversación por voz (tipo ChatGPT) ---------- */
+// Escucha → piensa → habla → vuelve a escuchar, manos libres, hasta que lo cierres.
+const modoVoz = { activo:false, estado:"" };
+const capa = $("#voz"), orbe = $("#voz-orbe"), vozEstado = $("#voz-estado"), vozTexto = $("#voz-texto");
+function estadoVoz(e, texto){
+  modoVoz.estado = e; capa.dataset.estado = e;
+  vozEstado.textContent = { escuchando:"Te escucho…", pensando:"Pensando…", hablando:"Hablando… toca para interrumpir", pausa:"Toca el círculo para hablar" }[e] || "";
+  if(texto!=null) vozTexto.textContent = texto;
+}
+async function cicloVoz(){
+  let silencios = 0;
+  while(modoVoz.activo){
+    estadoVoz("escuchando", "");
+    let dicho = "";
+    try{ dicho = await dictar(t => { vozTexto.textContent = t; }); }
+    catch(e){ estadoVoz("pausa", (e?.code==="not-allowed") ? "Necesito permiso del micrófono." : consejoDictado); return; }
+    if(!modoVoz.activo) return;
+    if(!dicho){ if(++silencios >= 2){ estadoVoz("pausa", ""); return; } continue; }
+    silencios = 0;
+    estadoVoz("pensando", dicho);
+    const r = await enviar(dicho, { voz:true });
+    if(!modoVoz.activo) return;
+    const decirEsto = r?.respuesta || r?.error || "No te entendí.";
+    estadoVoz("hablando", decirEsto);
+    await decir(decirEsto);
+  }
+}
+function abrirVoz(){
+  if(!puedeDictar()){ notaChat.textContent = consejoDictado; return; }
+  modoVoz.activo = true; capa.hidden = false; abrir("hablar"); cicloVoz();
+}
+function cerrarVoz(){ modoVoz.activo = false; detener(); callar(); capa.hidden = true; }
+$("#btn-voz").addEventListener("click", abrirVoz);
+$("#voz-cerrar").addEventListener("click", cerrarVoz);
+orbe.addEventListener("click", () => {
+  if(modoVoz.estado === "hablando"){ callar(); }               // interrumpe y vuelve a escuchar
+  else if(modoVoz.estado === "escuchando"){ detener(); }       // ya terminé de hablar
+  else if(modoVoz.estado === "pausa"){ cicloVoz(); }
+});
 
 /* ---------- Ajustes ---------- */
 const dlg = $("#ajustes");
@@ -154,9 +207,13 @@ async function abrirAjustes(){
   dlg.showModal();
 }
 $("#btn-ajustes").addEventListener("click", abrirAjustes);
+$("#btn-borrar-chat").addEventListener("click", () => {
+  historialChat = []; ls.set("capataz-chat", []); borrarHistorial();
+  chat.querySelectorAll(".msg").forEach(m => m.remove()); dlg.close();
+});
 $("#btn-guardar-ajustes").addEventListener("click", async () => {
   const clave = $("#in-clave").value.trim();
-  if(clave) await guardarClave(clave);
+  if(clave) try { await guardarClave(clave); reiniciarVozNatural(); } catch { $("#nota-clave").textContent = "No se pudo guardar la clave en este equipo."; return; }
   ls.set("capataz-modelo", $("#in-modelo").value.trim());
   if(plataforma==="electron") await nativo.autoinicio($("#chk-autoinicio").checked);
   dlg.close();

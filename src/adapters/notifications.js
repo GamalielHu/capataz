@@ -21,8 +21,22 @@ export async function pedirPermiso(){
   } catch {}
 }
 
-// Deja programados en el sistema exactamente los avisos pendientes futuros.
-export async function sincronizar(avisos){
+// Resumen de la mañana (7:00) con lo pendiente: Capataz te busca a ti, no solo al revés.
+const ID_RESUMEN = 7000007;
+function proximas7(){ const d = new Date(); d.setHours(7, 0, 0, 0); if (d <= new Date()) d.setDate(d.getDate() + 1); return d; }
+export function textoResumen(avisos, tareas, dia){
+  const ini = new Date(dia); ini.setHours(0,0,0,0); const fin = new Date(ini); fin.setDate(fin.getDate() + 1);
+  const hoy = avisos.filter(a => !a.hecho && a.cuando >= ini && a.cuando < fin).sort((a,b) => a.cuando - b.cuando);
+  const pend = tareas.filter(t => !t.hecho);
+  if (!hoy.length && !pend.length) return null;
+  const partes = [];
+  if (hoy.length) partes.push(`${hoy.length} ${hoy.length === 1 ? "aviso" : "avisos"} hoy (primero: ${hoy[0].texto})`);
+  if (pend.length) partes.push(`${pend.length} ${pend.length === 1 ? "trabajo pendiente" : "trabajos pendientes"}`);
+  return "Buenos días. Tienes " + partes.join(" y ") + ".";
+}
+
+// Deja programados en el sistema exactamente los avisos pendientes futuros (y el resumen de la mañana).
+export async function sincronizar(avisos, tareas = []){
   if (plataforma === "electron"){ nativo.avisosCambiaron(); return; }
   if (plataforma !== "android") return;
   try {
@@ -30,10 +44,13 @@ export async function sincronizar(avisos){
     if (notifications.length) await LocalNotifications.cancel({ notifications: notifications.map(n => ({ id:n.id })) });
     const ahora = Date.now();
     const futuros = avisos.filter(a => !a.hecho && a.cuando > ahora).sort((a,b) => a.cuando - b.cuando).slice(0, 60);
-    if (futuros.length) await LocalNotifications.schedule({ notifications: futuros.map(a => ({
+    const lista = futuros.map(a => ({
       id: idNumerico(a.id + a.cuando), title:"Capataz", body:a.texto, channelId:"avisos", actionTypeId:"AVISO",
       extra:{ id:a.id }, schedule:{ at:new Date(a.cuando), allowWhileIdle:true }
-    })) });
+    }));
+    const at = proximas7(), resumen = textoResumen(avisos, tareas, at);
+    if (resumen) lista.push({ id:ID_RESUMEN, title:"Capataz · tu día", body:resumen, channelId:"avisos", extra:{ id:"resumen" }, schedule:{ at, allowWhileIdle:true } });
+    if (lista.length) await LocalNotifications.schedule({ notifications: lista });
   } catch {}
 }
 

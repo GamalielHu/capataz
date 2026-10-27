@@ -13,17 +13,21 @@ function modelosA(clave, modelo){
   return modelo && /^gemini/.test(modelo) ? [modelo, ...RESPALDO_GEMINI.filter(m => m !== modelo)] : RESPALDO_GEMINI;
 }
 
-// {system, messages:[{role:"user"|"assistant", content}], modelo?, maxTokens?} → {url, headers, body}
-function peticion(clave, { system, messages, modelo, maxTokens = 4096 }, navegador = false){
+// {system, messages:[{role:"user"|"assistant", content}], modelo?, maxTokens?, audio?:{mime,data}, json?} → {url, headers, body}
+// audio (solo Gemini) se adjunta al último mensaje; json:false pide texto libre.
+function peticion(clave, { system, messages, modelo, maxTokens = 4096, audio, json = true }, navegador = false){
   const p = proveedorDe(clave);
+  if (audio && p !== "gemini") throw Object.assign(new Error("sin_audio"), { code: "sin_audio" });
   const model = modelo && (p === "gemini") === /^gemini/.test(modelo) ? modelo : MODELOS[p];
   if (p === "gemini") return {
     url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
     headers: { "content-type": "application/json", "x-goog-api-key": clave },
     body: {
       systemInstruction: { parts: [{ text: system }] },
-      contents: messages.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-      generationConfig: { responseMimeType: "application/json", maxOutputTokens: maxTokens, temperature: 0.4 }
+      contents: messages.map((m, i) => ({ role: m.role === "assistant" ? "model" : "user", parts: [
+        ...(audio && i === messages.length - 1 ? [{ inline_data: { mime_type: audio.mime, data: audio.data } }] : []),
+        { text: m.content }] })),
+      generationConfig: { ...(json ? { responseMimeType: "application/json" } : {}), maxOutputTokens: maxTokens, temperature: audio ? 0 : 0.4 }
     }
   };
   return {
@@ -49,4 +53,22 @@ function codigoError(estado, datos){
   return "api_" + estado;
 }
 
-module.exports = { MODELOS, proveedorDe, peticion, textoDe, codigoError, modelosA, reintentable };
+// Voz natural (texto → audio) con Gemini. Devuelve {mime, data base64}.
+const MODELOS_VOZ = ["gemini-3.8-flash-lite-tts", "gemini-2.5-flash-preview-tts", "gemini-3.8-flash-tts"];
+function peticionVoz(clave, texto, modelo, voz = "Charon"){
+  return {
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`,
+    headers: { "content-type": "application/json", "x-goog-api-key": clave },
+    body: {
+      contents: [{ parts: [{ text: texto }] }],
+      generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz } } } }
+    }
+  };
+}
+function audioDe(datos){
+  const p = (datos?.candidates?.[0]?.content?.parts || []).find(p => p.inlineData || p.inline_data);
+  const d = p && (p.inlineData || p.inline_data);
+  return d ? { mime: d.mimeType || d.mime_type, data: d.data } : null;
+}
+
+module.exports = { MODELOS_VOZ, peticionVoz, audioDe, MODELOS, proveedorDe, peticion, textoDe, codigoError, modelosA, reintentable };

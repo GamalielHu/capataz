@@ -44,6 +44,7 @@
         <form id="f-chat">
           <input id="in-chat" autocomplete="off" placeholder="Escribe o dicta un mensaje…" aria-label="Mensaje">
           <button type="button" class="icon-btn" id="btn-mic" aria-label="Dictar por voz" title="Dictar por voz"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+          <button type="button" class="icon-btn" id="btn-voz" aria-label="Conversar por voz" title="Conversar por voz"><svg viewBox="0 0 24 24"><path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/></svg></button>
           <button type="submit" class="icon-btn primary" id="btn-enviar" aria-label="Enviar"><svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg></button>
         </form>
         <div class="opciones">
@@ -76,6 +77,15 @@
 </main>
 
 
+<section id="voz" class="voz" hidden data-estado="">
+  <div class="voz-centro">
+    <button type="button" id="voz-orbe" class="voz-orbe" aria-label="Hablar o interrumpir"><span></span></button>
+    <p id="voz-estado" class="voz-estado"></p>
+    <p id="voz-texto" class="voz-texto"></p>
+  </div>
+  <button type="button" id="voz-cerrar" class="voz-cerrar" aria-label="Terminar conversación">Terminar</button>
+</section>
+
 <dialog id="ajustes">
   <form method="dialog" class="ajustes">
     <h2>Ajustes</h2>
@@ -89,6 +99,7 @@
     <label class="fila" id="fila-autoinicio" hidden><input type="checkbox" id="chk-autoinicio"> Iniciar con Windows</label>
     <h3>Lo que Capataz sabe de ti</h3>
     <ul class="lista" id="lista-perfil"></ul>
+    <button type="button" class="del" id="btn-borrar-chat">Borrar historial de la conversación</button>
     <div class="acciones">
       <button type="button" class="btn" id="btn-guardar-ajustes">Guardar</button>
       <button value="cerrar" class="del">Cerrar</button>

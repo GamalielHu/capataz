@@ -3,7 +3,7 @@ const { app, BrowserWindow, Tray, Menu, Notification, ipcMain, safeStorage, nati
 const path = require("node:path");
 const fs = require("node:fs");
 const Database = require("better-sqlite3");
-const { peticion, textoDe, codigoError, modelosA, reintentable } = require("./proveedores.js");
+const { peticion, textoDe, codigoError, modelosA, reintentable, MODELOS_VOZ, peticionVoz, audioDe, proveedorDe } = require("./proveedores.js");
 
 const APP_ID = "bo.capataz.app";
 const ARRANQUE_OCULTO = "--oculto";
@@ -60,15 +60,37 @@ function revisarAvisos() {
 }
 ipcMain.on("avisos:cambiaron", () => revisarAvisos());
 
+// Resumen de la mañana: una vez al día desde las 7:00.
+function resumenDiario() {
+  const ahora = new Date(), hoy = ahora.toDateString(), marca = path.join(app.getPath("userData"), ".resumen");
+  if (ahora.getHours() < 7 || (fs.existsSync(marca) && fs.readFileSync(marca, "utf8") === hoy)) return;
+  fs.writeFileSync(marca, hoy);
+  const ini = new Date(ahora); ini.setHours(0, 0, 0, 0); const fin = ini.getTime() + 864e5;
+  const avisos = db.prepare(`SELECT json_extract(data,'$.texto') AS texto FROM items WHERE json_extract(data,'$.tipo')='recordatorio'
+    AND json_extract(data,'$.hecho')=0 AND json_extract(data,'$.cuando') >= ? AND json_extract(data,'$.cuando') < ? ORDER BY json_extract(data,'$.cuando')`).all(ini.getTime(), fin);
+  const pend = db.prepare(`SELECT COUNT(*) AS n FROM items WHERE json_extract(data,'$.tipo')='tarea' AND json_extract(data,'$.hecho')=0`).get().n;
+  if (!avisos.length && !pend) return;
+  const partes = [];
+  if (avisos.length) partes.push(`${avisos.length} ${avisos.length === 1 ? "aviso" : "avisos"} hoy (primero: ${avisos[0].texto})`);
+  if (pend) partes.push(`${pend} ${pend === 1 ? "trabajo pendiente" : "trabajos pendientes"}`);
+  const n = new Notification({ title: "Capataz · tu día", body: "Buenos días. Tienes " + partes.join(" y ") + ".", icon: ICONO });
+  n.on("click", mostrar); n.show();
+}
+
 /* ---------- Clave de API (cifrada con DPAPI de Windows vía safeStorage) ---------- */
 const archivoClave = () => path.join(app.getPath("userData"), "clave.bin");
+// Sin cifrado del sistema (algunos Linux) se guarda tal cual, solo legible por el usuario.
+const SIN_CIFRAR = Buffer.from("texto:");
 function leerClave() {
-  try { return safeStorage.decryptString(fs.readFileSync(archivoClave())); } catch { return null; }
+  try {
+    const b = fs.readFileSync(archivoClave());
+    return b.subarray(0, SIN_CIFRAR.length).equals(SIN_CIFRAR) ? b.subarray(SIN_CIFRAR.length).toString() : safeStorage.decryptString(b);
+  } catch { return null; }
 }
 ipcMain.handle("clave:guardar", (_e, clave) => {
   if (!clave) { fs.rmSync(archivoClave(), { force: true }); return; }
-  if (!safeStorage.isEncryptionAvailable()) throw new Error("cifrado no disponible");
-  fs.writeFileSync(archivoClave(), safeStorage.encryptString(clave));
+  fs.writeFileSync(archivoClave(), safeStorage.isEncryptionAvailable()
+    ? safeStorage.encryptString(clave) : Buffer.concat([SIN_CIFRAR, Buffer.from(clave)]), { mode: 0o600 });
 });
 ipcMain.handle("clave:hay", () => !!leerClave());
 
@@ -89,6 +111,23 @@ ipcMain.handle("ia", async (_e, pedido) => {
   for (const modelo of modelosA(clave, pedido.modelo)) {
     try { return await pedirIA(clave, { ...pedido, modelo }); }
     catch (e) { error = e; if (!reintentable(e.message)) throw e; }
+  }
+  throw error;
+});
+
+ipcMain.handle("voz", async (_e, texto) => {
+  const clave = leerClave();
+  if (!clave || proveedorDe(clave) !== "gemini") throw new Error("sin_audio");
+  let error;
+  for (const modelo of MODELOS_VOZ) {
+    const { url, headers, body } = peticionVoz(clave, texto, modelo);
+    try {
+      const r = await fetch(url, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(30000) });
+      const datos = await r.json();
+      if (r.status !== 200) throw new Error(codigoError(r.status, datos));
+      const audio = audioDe(datos); if (!audio) throw new Error("sin_audio");
+      return audio;
+    } catch (e) { error = e.name === "TimeoutError" || e.name === "TypeError" ? new Error("red") : e; if (!reintentable(error.message)) throw error; }
   }
   throw error;
 });
@@ -138,6 +177,6 @@ app.whenReady().then(() => {
   crearVentana();
   crearBandeja();
   revisarAvisos();
-  setInterval(revisarAvisos, 30000);
+  setInterval(() => { revisarAvisos(); resumenDiario(); }, 30000);
 });
 app.on("window-all-closed", e => e.preventDefault());

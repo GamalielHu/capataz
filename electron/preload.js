@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("capatazNativo", {
   db: (op, ...args) => ipcRenderer.invoke("db", op, ...args),
   ia: cuerpo => ipcRenderer.invoke("ia", cuerpo),
+  voz: texto => ipcRenderer.invoke("voz", texto),
   guardarClave: clave => ipcRenderer.invoke("clave:guardar", clave),
   tieneClave: () => ipcRenderer.invoke("clave:hay"),
   autoinicio: activar => ipcRenderer.invoke("autoinicio", activar),

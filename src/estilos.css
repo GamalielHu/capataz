@@ -1,3 +1,4 @@
+[hidden]{display:none!important}
 /* Layout: una sola columna tipo libreta de obra; cabecera fija con pestañas, aviso de alarma arriba, redactor abajo */
 :root{
   --bg:#EDEFF2; --surface:#FFFFFF; --ink:#1A2330; --muted:#5D6A78; --line:#D4D9E0;
@@ -119,3 +120,21 @@ dialog::backdrop{background:rgb(0 0 0 / .45)}
 .ajustes .acciones{display:flex;justify-content:space-between;align-items:center}
 #lista-perfil{max-height:40vh;overflow:auto}
 #lista-perfil:empty::before{content:"Aún nada. Aprende mientras conversan.";display:block;padding:12px;color:var(--muted)}
+
+/* Modo conversación por voz */
+.voz{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:space-between;
+  padding:calc(40px + env(safe-area-inset-top,0px)) 16px calc(24px + env(safe-area-inset-bottom,0px))}
+.voz-centro{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;max-width:560px;width:100%}
+.voz-orbe{width:min(52vw,220px);aspect-ratio:1;border-radius:50%;border:0;padding:0;background:radial-gradient(circle at 35% 30%,#8FB0FF,var(--accent) 60%,#122F86);
+  box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 40%,transparent);transition:transform .3s}
+.voz[data-estado="escuchando"] .voz-orbe{animation:latido 1.4s ease-in-out infinite}
+.voz[data-estado="pensando"] .voz-orbe{animation:gira 1.2s linear infinite;background:conic-gradient(var(--accent),#8FB0FF,var(--alarm),var(--accent))}
+.voz[data-estado="hablando"] .voz-orbe{animation:habla .5s ease-in-out infinite alternate}
+.voz[data-estado="pausa"] .voz-orbe{opacity:.55}
+@keyframes latido{0%,100%{transform:scale(1);box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 45%,transparent)}50%{transform:scale(1.06);box-shadow:0 0 0 26px transparent}}
+@keyframes gira{to{transform:rotate(360deg)}}
+@keyframes habla{from{transform:scale(.94)}to{transform:scale(1.08)}}
+.voz-estado{margin:0;font-family:var(--f-display);font-size:20px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.voz-texto{margin:0;text-align:center;font-size:19px;line-height:1.4;min-height:3em;max-height:40vh;overflow:auto;overflow-wrap:anywhere}
+.voz-cerrar{border:1.5px solid var(--line);background:var(--surface);border-radius:24px;padding:12px 32px;font-weight:600}
+@media (prefers-reduced-motion:reduce){.voz-orbe{animation:none!important}}

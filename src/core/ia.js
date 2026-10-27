@@ -24,15 +24,22 @@ Reglas: si piden recordar algo sin hora, pregunta la hora y no crees el recordat
 ${APRENDER}`;
 
 const MAX_TURNOS = 16;
-let turnos = ls.get("capataz-turnos", []);
-export function borrarHistorial(){ turnos = []; ls.set("capataz-turnos", turnos); }
+// Cada chat guarda su propia conversación; la memoria, los trabajos y los avisos son comunes a todos.
+let chatId = "general", turnos = [], otrosChats = "";
+const claveTurnos = id => "capataz-turnos:" + id;
+export function usarChat(id, otros = []){
+  chatId = id; turnos = ls.get(claveTurnos(id), []);
+  otrosChats = otros.length ? otros.map(c => "- " + c).join("\n") : "";
+}
+const guardarTurnos = () => { turnos = turnos.slice(-MAX_TURNOS); ls.set(claveTurnos(chatId), turnos); };
+export function borrarHistorial(id = chatId){ if (id === chatId) turnos = []; ls.del(claveTurnos(id)); }
 
 function contexto(){
   const ahora=new Date();
   const fecha = new Intl.DateTimeFormat("es",{weekday:"long",day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"}).format(ahora);
   const pend = tareas().filter(t=>!t.hecho).slice(0,60).map(t=>`- [${t.id}] ${t.texto}${t.proyecto?" (proyecto: "+t.proyecto+")":""}`).join("\n") || "(ninguno)";
   const avs = avisos().filter(a=>!a.hecho).sort((a,b)=>a.cuando-b.cuando).slice(0,40).map(a=>`- [${a.id}] ${localISO(new Date(a.cuando))} ${a.texto}`).join("\n") || "(ninguno)";
-  return `Ahora es ${fecha} (${localISO(ahora)}).\nTrabajos pendientes:\n${pend}\nRecordatorios pendientes:\n${avs}`;
+  return `Ahora es ${fecha} (${localISO(ahora)}).${otrosChats ? "\nOtros chats que tiene contigo (temas aparte; lo importante de ellos está en el perfil):\n" + otrosChats : ""}\nTrabajos pendientes:\n${pend}\nRecordatorios pendientes:\n${avs}`;
 }
 
 function parsear(texto){
@@ -80,20 +87,21 @@ export async function conversar(texto, modelo, { voz = false, imagen = null } = 
 
 async function conIA(texto, modelo, voz, imagen){
   if (imagen && !texto) texto = "Mira esta foto y dime qué ves y qué me recomiendas.";
-  const system = `${REGLAS}${voz ? VOZ : ""}\n\n## Lo que sabes de la persona\n${await bloquePerfil()}\n\n## Estado actual\n${contexto()}`;
+  const primero = !turnos.length;
+  const system = `${REGLAS}${primero ? '\nEs el primer mensaje de este chat: agrega también "titulo" con 2 a 5 palabras que nombren el tema (ej. "Obra Achumani", "Cálculo de losa").' : ""}${voz ? VOZ : ""}\n\n## Lo que sabes de la persona\n${await bloquePerfil()}\n\n## Estado actual\n${contexto()}`;
   const messages = [...turnos.slice(-MAX_TURNOS), { role:"user", content:texto }];
   const r = parsear(await llamarLLM({ system, messages, modelo, imagen }));
   const respuesta = typeof r?.respuesta==="string" && r.respuesta.trim() ? r.respuesta.trim() : "Listo.";
   const hechos = await aplicar(r);
   turnos.push({role:"user",content:(imagen ? "[envió una foto] " : "") + texto},{role:"assistant",content:JSON.stringify({respuesta, aplicado:hechos})});
-  turnos = turnos.slice(-MAX_TURNOS);
-  ls.set("capataz-turnos", turnos);
-  return { respuesta, hechos };
+  guardarTurnos();
+  const titulo = primero && typeof r?.titulo === "string" ? r.titulo.trim().slice(0, 40) : "";
+  return { respuesta, hechos, titulo };
 }
 
 export function agregarTurno(usuario, respuesta){
   turnos.push({role:"user",content:usuario},{role:"assistant",content:JSON.stringify({respuesta, aplicado:[]})});
-  turnos = turnos.slice(-MAX_TURNOS); ls.set("capataz-turnos", turnos);
+  guardarTurnos();
 }
 
 /* ---------- Voz en tiempo real (Gemini Live): herramientas en vez de JSON ---------- */

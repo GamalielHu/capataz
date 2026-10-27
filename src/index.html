@@ -29,6 +29,10 @@
 <main>
   <div class="wrap">
     <section class="panel" id="p-hablar">
+      <div class="chats-barra">
+        <button type="button" class="chat-actual" id="btn-chats" aria-label="Ver chats"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span id="titulo-chat">General</span></button>
+        <button type="button" class="nuevo-chat" id="btn-nuevo-chat" title="Chat nuevo">+ Nuevo</button>
+      </div>
       <div class="chat" id="chat">
         <div class="intro" id="intro">
           <h2>¿Qué hay que hacer hoy?</h2>
@@ -114,11 +118,20 @@
     <label class="fila" id="fila-autoinicio" hidden><input type="checkbox" id="chk-autoinicio"> Iniciar con Windows</label>
     <h3>Lo que Capataz sabe de ti</h3>
     <ul class="lista" id="lista-perfil"></ul>
-    <button type="button" class="del" id="btn-borrar-chat">Borrar historial de la conversación</button>
     <div class="acciones">
       <button type="button" class="btn" id="btn-guardar-ajustes">Guardar</button>
       <button value="cerrar" class="del">Cerrar</button>
     </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-chats">
+  <form method="dialog" class="ajustes">
+    <h2>Tus chats</h2>
+    <p class="nota">Lo que Capataz aprende, tus trabajos y avisos son los mismos en todos los chats.</p>
+    <button type="button" class="btn" id="btn-nuevo-chat2">+ Chat nuevo</button>
+    <ul class="lista chats-lista" id="lista-chats"></ul>
+    <div class="acciones"><button value="cerrar" class="del">Cerrar</button></div>
   </form>
 </dialog>
 

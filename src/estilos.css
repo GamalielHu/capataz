@@ -144,3 +144,14 @@ dialog::backdrop{background:rgb(0 0 0 / .45)}
 .adjunto img{max-height:90px;border-radius:8px;border:1px solid var(--line);display:block}
 .adjunto button{position:absolute;top:-8px;right:-8px;width:24px;height:24px;border-radius:50%;border:0;background:var(--ink);color:var(--surface);font-size:12px;padding:0}
 .msg img{display:block;max-width:220px;border-radius:8px;margin-bottom:6px}
+
+/* Varios chats */
+.chats-barra{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.chat-actual{flex:1;min-width:0;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 12px;color:var(--ink);font-weight:600;text-align:left}
+.chat-actual svg{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.chat-actual span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nuevo-chat{background:var(--accent-soft);color:var(--accent);border:0;border-radius:8px;padding:9px 12px;font-weight:600;white-space:nowrap}
+.chats-lista li.actual{border-color:var(--accent);background:var(--accent-soft)}
+.chats-lista .txt{cursor:pointer}
+.chats-lista .botones{display:flex;gap:4px}
+.chats-lista input.renombrar{flex:1;min-width:0;border:1.5px solid var(--accent);background:var(--surface);color:var(--ink);border-radius:8px;padding:8px 10px;font:inherit}

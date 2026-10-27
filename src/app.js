@@ -1,8 +1,8 @@
 // Interfaz de Capataz (misma UI que la versión artifact) sobre el core y los adaptadores nativos.
-import { $, el, ls, cuandoTexto, localISO } from "./core/util.js";
+import { $, el, ls, cuandoTexto, localISO, nuevoId } from "./core/util.js";
 import { cargar, alCambiar, recargar, tareas, avisos, agregarTarea, agregarAviso, actualizar, borrar, alternarHecho, posponer } from "./core/datos.js";
 import { cargarPerfil, listarPerfil, olvidar } from "./core/memoria.js";
-import { conversar, borrarHistorial, agregarTurno } from "./core/ia.js";
+import { conversar, borrarHistorial, agregarTurno, usarChat } from "./core/ia.js";
 import { iniciarVozViva } from "./core/vozViva.js";
 import { revisarAlarmas } from "./core/alarmas.js";
 import { plataforma, nativo } from "./adapters/plataforma.js";
@@ -130,18 +130,82 @@ let ocupado=false;
 function burbuja(cls, texto){ const b=el("div",{class:"msg "+cls}, texto); chat.append(b); b.scrollIntoView({block:"end",behavior:"smooth"}); return b; }
 function conHechos(b, hechos){ if(hechos?.length) b.append(el("div",{class:"hechos"}, hechos.map(h=>el("span",{class:"hecho"},h)))); return b; }
 
-// Historial visible: se conserva entre sesiones (últimos 120 mensajes).
-let historialChat = ls.get("capataz-chat", []);
+// Varios chats (como ChatGPT): cada uno con su historial visible (últimos 120 mensajes) y su contexto para la IA.
+// La memoria (perfil), los trabajos y los avisos son comunes a todos.
+const plantillaIntro = $("#intro").cloneNode(true);
+let chats = ls.get("capataz-chats", null);
+if(!chats){ // primera vez o migración desde el chat único
+  chats = [{ id:"general", titulo:"General", actualizado:Date.now() }];
+  const viejo = ls.get("capataz-chat", null), turnosViejos = ls.get("capataz-turnos", null);
+  if(viejo) ls.set("capataz-chat:general", viejo);
+  if(turnosViejos) ls.set("capataz-turnos:general", turnosViejos);
+  ls.del("capataz-chat"); ls.del("capataz-turnos");
+  ls.set("capataz-chats", chats);
+}
+let chatActual = chats.find(c => c.id === ls.get("capataz-chat-actual", "")) || chats[0];
+let historialChat = [];
+const guardarChats = () => ls.set("capataz-chats", chats);
 function guardarChat(m){
   historialChat.push(m); historialChat = historialChat.slice(-120);
   historialChat.slice(0, -30).forEach(x => delete x.mini); // miniaturas solo en los últimos 30
-  ls.set("capataz-chat", historialChat);
+  ls.set("capataz-chat:" + chatActual.id, historialChat);
+  chatActual.actualizado = Date.now();
+  if(m.de === "yo" && chatActual.nuevo && m.texto){ // el primer mensaje le pone nombre
+    const t = m.texto.replace(/\s+/g, " ").trim();
+    chatActual.titulo = t.length <= 40 ? t : t.slice(0, 40).replace(/\s+\S*$/, "") + "…";
+    delete chatActual.nuevo; $("#titulo-chat").textContent = chatActual.titulo;
+  }
+  guardarChats();
 }
-if(historialChat.length){
-  $("#intro")?.remove();
+function mostrarChat(c){
+  if(ocupado) return; // espera la respuesta antes de cambiar de chat
+  chatActual = c; ls.set("capataz-chat-actual", c.id);
+  historialChat = ls.get("capataz-chat:" + c.id, []);
+  usarChat(c.id, chats.filter(x => x !== c && !x.nuevo).sort((a, b) => b.actualizado - a.actualizado).slice(0, 10).map(x => x.titulo));
+  $("#titulo-chat").textContent = c.titulo;
+  chat.replaceChildren();
+  if(!historialChat.length){
+    const intro = plantillaIntro.cloneNode(true); chat.append(intro);
+    intro.querySelector("#ejemplos")?.addEventListener("click", e => { if(e.target.matches("button")) enviar(e.target.textContent); });
+  }
   for(const m of historialChat) chat.append(conHechos(el("div",{class:"msg "+m.de}, m.mini ? el("img",{src:m.mini, alt:"Foto"}) : null, m.texto), m.hechos));
   requestAnimationFrame(() => chat.lastElementChild?.scrollIntoView({block:"end"}));
 }
+function nuevoChat(){
+  if(ocupado) return;
+  const vacio = chats.find(c => c.nuevo && !ls.get("capataz-chat:" + c.id, []).length);
+  const c = vacio || { id:nuevoId("c"), titulo:"Chat nuevo", nuevo:true, actualizado:Date.now() };
+  if(!vacio){ chats.unshift(c); guardarChats(); }
+  mostrarChat(c); abrir("hablar"); $("#in-chat").focus();
+}
+function borrarChat(c){
+  if(!confirm(`¿Borrar el chat “${c.titulo}”? Lo que Capataz aprendió de ti, tus trabajos y avisos se quedan.`)) return;
+  ls.del("capataz-chat:" + c.id); borrarHistorial(c.id);
+  chats = chats.filter(x => x !== c);
+  if(!chats.length) chats.push({ id:nuevoId("c"), titulo:"Chat nuevo", nuevo:true, actualizado:Date.now() });
+  guardarChats();
+  if(c === chatActual) mostrarChat(chats[0]);
+  renderChats();
+}
+const dlgChats = $("#dlg-chats");
+// Renombrar en la misma fila (prompt() no existe en Electron).
+function renombrar(c, li){
+  const entrada = el("input",{value:c.titulo, "aria-label":"Nombre del chat", class:"renombrar"});
+  const listo = () => { const t = entrada.value.trim(); if(t && t !== c.titulo){ c.titulo = t; c.renombrado = true; delete c.nuevo; guardarChats(); if(c === chatActual) $("#titulo-chat").textContent = t; } renderChats(); };
+  entrada.addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); listo(); } if(e.key === "Escape"){ e.preventDefault(); renderChats(); } });
+  entrada.addEventListener("blur", listo);
+  li.replaceChildren(entrada); entrada.focus(); entrada.select();
+}
+function renderChats(){
+  $("#lista-chats").replaceChildren(...[...chats].sort((a, b) => b.actualizado - a.actualizado).map(c => el("li",{class: c === chatActual ? "actual" : ""},
+    el("div",{class:"txt", onclick:() => { mostrarChat(c); dlgChats.close(); }}, el("span",{}, c.titulo), el("div",{class:"meta"}, el("span",{class:"hora"}, cuandoTexto(c.actualizado)))),
+    el("div",{class:"botones"},
+      el("button",{class:"del",type:"button",onclick:ev => renombrar(c, ev.target.closest("li"))},"Renombrar"),
+      el("button",{class:"del",type:"button",onclick:() => borrarChat(c)},"Borrar")))));
+}
+$("#btn-chats").addEventListener("click", () => { renderChats(); dlgChats.showModal(); });
+$("#btn-nuevo-chat").addEventListener("click", nuevoChat);
+$("#btn-nuevo-chat2").addEventListener("click", () => { dlgChats.close(); nuevoChat(); });
 
 const ERRORES = {
   sin_clave:"Para conversar libremente, pon una clave gratuita de Gemini en Ajustes (engranaje arriba).",
@@ -165,7 +229,8 @@ async function enviar(texto, { voz = false } = {}){
   const pensando = burbuja("ia pensando","Pensando…");
   ocupado=true;
   try{
-    const { respuesta, hechos } = await conversar(texto, ls.get("capataz-modelo", ""), { voz, imagen });
+    const { respuesta, hechos, titulo } = await conversar(texto, ls.get("capataz-modelo", ""), { voz, imagen });
+    if(titulo && !chatActual.renombrado){ chatActual.titulo = titulo; chatActual.renombrado = true; $("#titulo-chat").textContent = titulo; guardarChats(); }
     pensando.classList.remove("pensando"); pensando.textContent = respuesta; conHechos(pensando, hechos);
     guardarChat({ de:"ia", texto:respuesta, hechos });
     hablar(respuesta);
@@ -179,7 +244,7 @@ async function enviar(texto, { voz = false } = {}){
   }finally{ ocupado=false; }
 }
 $("#f-chat").addEventListener("submit", e => { e.preventDefault(); enviar($("#in-chat").value); });
-$("#ejemplos")?.addEventListener("click", e => { if(e.target.matches("button")) enviar(e.target.textContent); });
+mostrarChat(chatActual);
 
 /* ---------- Modo conversación por voz (tipo ChatGPT) ---------- */
 // Escucha → piensa → habla → vuelve a escuchar, manos libres, hasta que lo cierres.
@@ -262,10 +327,6 @@ async function abrirAjustes(){
   dlg.showModal();
 }
 $("#btn-ajustes").addEventListener("click", abrirAjustes);
-$("#btn-borrar-chat").addEventListener("click", () => {
-  historialChat = []; ls.set("capataz-chat", []); borrarHistorial();
-  chat.querySelectorAll(".msg").forEach(m => m.remove()); dlg.close();
-});
 $("#btn-guardar-ajustes").addEventListener("click", async () => {
   const clave = $("#in-clave").value.trim();
   if(clave) try { await guardarClave(clave); reiniciarVozNatural(); } catch { $("#nota-clave").textContent = "No se pudo guardar la clave en este equipo."; return; }

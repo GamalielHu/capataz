@@ -11,7 +11,7 @@ export function el(tag, attrs, ...kids){
   for (const c of kids.flat()) if (c!=null && c!==false) n.append(c.nodeType?c:document.createTextNode(String(c)));
   return n;
 }
-export const ls = { get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}} };
+export const ls = { get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch{return d}}, set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}, del(k){try{localStorage.removeItem(k)}catch{}} };
 export const nuevoId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 
 /* ---------- Fechas ---------- */

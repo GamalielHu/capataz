@@ -2,7 +2,7 @@
 // Lo que se repite o se usa sube de prioridad; al prompt van las entradas mejor puntuadas.
 import { storage } from "../adapters/storage.js";
 
-const MAX_EN_PROMPT = 80;
+const MAX_EN_PROMPT = 250;
 export const CATEGORIAS = ["persona", "proyecto", "proveedor", "contacto", "preferencia", "rutina", "general"];
 let perfil = [];
 

@@ -2,26 +2,32 @@
 // Módulo CommonJS compartido por la ventana (vía esbuild) y el proceso principal de Electron.
 const MODELOS = { gemini: "gemini-flash-lite-latest", anthropic: "claude-sonnet-5-5" };
 // Si un modelo de Gemini está saturado o no existe, se prueba el siguiente.
-const RESPALDO_GEMINI = ["gemini-flash-lite-latest", "gemini-flash-latest", "gemini-3.5-flash"];
+// Rápido (~1 s) para charla y agenda; potente (razona, ~3 s) para cálculos, fotos y preguntas difíciles.
+const RESPALDO_GEMINI = ["gemini-flash-lite-latest", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest"];
+const POTENTE_GEMINI = ["gemini-3.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.5-flash-lite"];
 
 const proveedorDe = clave => /^sk-ant-/.test(clave) ? "anthropic" : "gemini";
 const reintentable = codigo => codigo === "sobrecargado" || codigo === "rate_limited" || codigo === "api_404";
 
 // Lista de pedidos a probar en orden.
-function modelosA(clave, modelo){
+function modelosA(clave, modelo, potente = false){
   if (proveedorDe(clave) !== "gemini") return [modelo];
-  return modelo && /^gemini/.test(modelo) ? [modelo, ...RESPALDO_GEMINI.filter(m => m !== modelo)] : RESPALDO_GEMINI;
+  const base = potente ? POTENTE_GEMINI : RESPALDO_GEMINI;
+  return modelo && /^gemini/.test(modelo) ? [modelo, ...base.filter(m => m !== modelo)] : base;
 }
+// Los modelos "lite" no piensan; los demás piensan poco para responder rápido.
+const piensa = modelo => /^gemini-(3|flash-latest|pro)/.test(modelo) && !/lite/.test(modelo);
 
 // {system, messages:[{role:"user"|"assistant", content}], modelo?, maxTokens?, audio?:{mime,data}, json?} → {url, headers, body}
 // audio (solo Gemini) se adjunta al último mensaje; json:false pide texto libre.
 // imagen:{mime,data} se adjunta al último mensaje (Gemini y Claude).
-function peticion(clave, { system, messages, modelo, maxTokens = 4096, audio, imagen, json = true }, navegador = false){
+// stream:true pide la respuesta por partes (SSE) para mostrarla mientras se escribe.
+function peticion(clave, { system, messages, modelo, maxTokens = 8192, audio, imagen, json = true, stream = false }, navegador = false){
   const p = proveedorDe(clave);
   if (audio && p !== "gemini") throw Object.assign(new Error("sin_audio"), { code: "sin_audio" });
   const model = modelo && (p === "gemini") === /^gemini/.test(modelo) ? modelo : MODELOS[p];
   if (p === "gemini") return {
-    url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+    url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`,
     headers: { "content-type": "application/json", "x-goog-api-key": clave },
     body: {
       systemInstruction: { parts: [{ text: system }] },
@@ -29,7 +35,8 @@ function peticion(clave, { system, messages, modelo, maxTokens = 4096, audio, im
         ...(audio && i === messages.length - 1 ? [{ inline_data: { mime_type: audio.mime, data: audio.data } }] : []),
         ...(imagen && i === messages.length - 1 ? [{ inline_data: { mime_type: imagen.mime, data: imagen.data } }] : []),
         { text: m.content }] })),
-      generationConfig: { ...(json ? { responseMimeType: "application/json" } : {}), maxOutputTokens: maxTokens, temperature: audio ? 0 : 0.4 }
+      generationConfig: { ...(json ? { responseMimeType: "application/json" } : {}), maxOutputTokens: maxTokens,
+        ...(audio ? { temperature: 0 } : piensa(model) ? { thinkingConfig: { thinkingLevel: "low" } } : { temperature: 0.5 }) }
     }
   };
   return {
@@ -74,4 +81,4 @@ function audioDe(datos){
   return d ? { mime: d.mimeType || d.mime_type, data: d.data } : null;
 }
 
-module.exports = { MODELOS_VOZ, peticionVoz, audioDe, MODELOS, proveedorDe, peticion, textoDe, codigoError, modelosA, reintentable };
+module.exports = { POTENTE_GEMINI, MODELOS_VOZ, peticionVoz, audioDe, MODELOS, proveedorDe, peticion, textoDe, codigoError, modelosA, reintentable };

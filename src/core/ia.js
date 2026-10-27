@@ -1,5 +1,5 @@
 // Loop de conversación: system = reglas + perfil aprendido + estado; respuesta JSON con mutaciones de estado.
-import { enviar as llamarLLM, tieneClave } from "../adapters/llm.js";
+import { enviar as llamarLLM, enviarEnVivo, tieneClave } from "../adapters/llm.js";
 import { interpretar, AYUDA } from "./interprete.js";
 import { items, tareas, avisos, agregarTarea, agregarAviso, actualizar } from "./datos.js";
 import { bloquePerfil, aprender, listarPerfil } from "./memoria.js";
@@ -7,7 +7,8 @@ import { cuandoTexto, localISO, ls } from "./util.js";
 import { accionDispositivo } from "../adapters/dispositivo.js";
 
 export const PERSONA = `Eres Capataz, el asistente personal de una persona que lleva proyectos de construcción en Bolivia. No eres un robot de respuestas: eres como un amigo de confianza y mano derecha en la obra, con criterio propio. Hablas español latinoamericano con naturalidad (puedes usar alguna expresión boliviana con moderación), cálido, directo y con buen humor cuando cabe. Le llamas por su nombre si lo sabes. Muestras interés real: preguntas cómo le fue, te acuerdas de lo que te contó antes y le das seguimiento ("¿y al final llegó el fierro?"). Si algo no cuadra, se lo dices con respeto; si no sabes algo, lo admites.
-Eres un asistente completo, como ChatGPT: conversas de cualquier tema, explicas, calculas (materiales, dosificaciones, metrados, costos), redactas mensajes y das ideas. Además llevas su agenda: anotas trabajos, programas recordatorios con fecha y hora, marcas cosas como hechas y le dices qué tiene pendiente. Respuestas breves por defecto (1 a 4 frases); más largas solo si lo pide o el tema lo necesita. Usa lo que sabes de la persona para personalizar sin repetirlo a cada rato.`;
+Eres un asistente completo, como ChatGPT: conversas de cualquier tema, explicas, calculas (materiales, dosificaciones, metrados, costos), redactas mensajes y das ideas. Además llevas su agenda: anotas trabajos, programas recordatorios con fecha y hora, marcas cosas como hechas y le dices qué tiene pendiente. Respuestas breves por defecto (1 a 4 frases); más largas solo si lo pide o el tema lo necesita. Usa lo que sabes de la persona para personalizar sin repetirlo a cada rato.
+Piensa antes de responder: entiende qué necesita de verdad y adelántate (si pide material para una losa, recuérdale también el curado o el encofrado si viene al caso). En cálculos de obra da primero el resultado y luego un desglose corto; usa las unidades y costumbres de Bolivia (bolsas de cemento de 50 kg, m³ de arena y grava, varillas de 12 m, ladrillo de 6 huecos, precios en Bs) e incluye el desperdicio. Si faltan datos, asume valores típicos y dilo. No inventes precios del día ni datos que no sabes: dilo y sugiere confirmarlos.`;
 const APRENDER = `Aprendizaje continuo: en CADA mensaje fíjate si la persona revela algo nuevo y útil a futuro y guárdalo en nuevos_aprendizajes: quién es, su familia y equipo, obras (nombre, ubicación, cliente, avance), proveedores, precios que paga, teléfonos, cuadrillas, horarios, gustos, forma de hablar, metas, problemas recurrentes y cómo los resolvió. También aprende de cómo te corrige ("no, a las 8 no, siempre a las 7" = preferencia). Reutiliza la misma clave para actualizar un dato; valor "" para olvidarlo si te lo piden. No repitas lo que ya está igual en el perfil ni guardes datos de un solo uso.`;
 
 // Lo que puede hacer en el celular o la PC (texto: campo "acciones"; voz en vivo: herramientas con el mismo nombre).
@@ -39,23 +40,64 @@ Usa [] en lo que no aplique. "cuando" va en hora local de la persona.
 Reglas: si piden recordar algo sin hora, pregunta la hora y no crees el recordatorio aún. "Mañana" sin hora: pregunta, salvo que el perfil diga su hora habitual. Si dicen "en 20 minutos", calcula desde la hora actual. Varias cosas en un mensaje = varias entradas. Confirma en "respuesta" lo que hiciste con la fecha en palabras. Nunca inventes ids.
 ${APRENDER}`;
 
-const MAX_TURNOS = 16;
-// Cada chat guarda su propia conversación; la memoria, los trabajos y los avisos son comunes a todos.
-let chatId = "general", turnos = [], otrosChats = "";
-const claveTurnos = id => "capataz-turnos:" + id;
+const MAX_TURNOS = 40;      // mensajes recientes que van completos a la IA
+const RESUMIR_DESDE = 56;   // pasado esto, lo más viejo se resume en vez de perderse
+// Cada chat guarda su propia conversación y un resumen de lo antiguo; la memoria, los trabajos y los avisos son comunes a todos.
+let chatId = "general", turnos = [], resumen = "", otrosChats = "", resumiendo = false;
+const claveTurnos = id => "capataz-turnos:" + id, claveResumen = id => "capataz-resumen:" + id;
+// otros: [{id, titulo}] de los demás chats, más recientes primero.
 export function usarChat(id, otros = []){
-  chatId = id; turnos = ls.get(claveTurnos(id), []);
-  otrosChats = otros.length ? otros.map(c => "- " + c).join("\n") : "";
+  chatId = id; turnos = ls.get(claveTurnos(id), []); resumen = ls.get(claveResumen(id), "");
+  otrosChats = otros.map(c => { const r = ls.get(claveResumen(c.id), ""); return `- ${c.titulo}${r ? ": " + r.slice(0, 300) : ""}`; }).join("\n");
 }
-const guardarTurnos = () => { turnos = turnos.slice(-MAX_TURNOS); ls.set(claveTurnos(chatId), turnos); };
-export function borrarHistorial(id = chatId){ if (id === chatId) turnos = []; ls.del(claveTurnos(id)); }
+function guardarTurnos(){
+  turnos = turnos.slice(-RESUMIR_DESDE - 20);
+  ls.set(claveTurnos(chatId), turnos);
+  if (turnos.length > RESUMIR_DESDE && !resumiendo) resumirViejos(chatId).catch(() => {});
+}
+// Condensa los mensajes más antiguos del chat en un resumen (en segundo plano, con el modelo rápido).
+async function resumirViejos(id){
+  resumiendo = true;
+  try {
+    const viejos = turnos.slice(0, turnos.length - MAX_TURNOS);
+    const texto = viejos.map(t => (t.role === "user" ? "Persona: " + t.content : "Capataz: " + leerRespuesta(t.content))).join("\n");
+    const nuevo = (await llamarLLM({ json:false, maxTokens:1024,
+      system:"Resumes conversaciones entre una persona y su asistente de obra. Escribe en español un resumen de máximo 120 palabras con lo importante para seguir conversando: temas, decisiones, números, pendientes y lo que la persona quería. Sin saludos ni relleno.",
+      messages:[{ role:"user", content:(resumen ? "Resumen anterior:\n" + resumen + "\n\n" : "") + "Conversación nueva:\n" + texto }] })).trim();
+    if (!nuevo || id !== chatId) return;
+    resumen = nuevo; ls.set(claveResumen(id), resumen);
+    turnos = turnos.slice(viejos.length); ls.set(claveTurnos(id), turnos);
+  } finally { resumiendo = false; }
+}
+const leerRespuesta = c => { try { return JSON.parse(c).respuesta ?? c; } catch { return c; } };
+export function borrarHistorial(id = chatId){ if (id === chatId){ turnos = []; resumen = ""; } ls.del(claveTurnos(id)); ls.del(claveResumen(id)); }
+
+// Preguntas que merecen el modelo que razona: cálculos, fotos, explicaciones, redacción o mensajes largos.
+const DIFICIL = /calcul|cu[aá]nt[oa]s?\b|metr[ao]|m2|m3|m²|m³|\d+\s*(x|por)\s*\d+|dosific|presupuest|cost|precio|cotiz|planilla|resistenc|losa|viga|columna|zapata|fierro|encofr|por qu[eé]|c[oó]mo (se|hago|puedo)|explica|diferencia|compar|recomiend|conviene|redact|escrib|carta|informe|contrato|plan\b|analiz|revis/i;
+export const esDificil = (texto, imagen) => !!imagen || String(texto).length > 160 || DIFICIL.test(String(texto));
+
+// Saca lo que va del campo "respuesta" de un JSON a medio escribir.
+export function respuestaParcial(buf){
+  const m = /"respuesta"\s*:\s*"/.exec(buf); if (!m) return "";
+  let out = "", i = m.index + m[0].length;
+  const esc = { n:"\n", t:"\t", r:"", '"':'"', "\\":"\\", "/":"/", b:"", f:"" };
+  for (; i < buf.length; i++){
+    const c = buf[i];
+    if (c === '"') break;
+    if (c !== "\\"){ out += c; continue; }
+    const n = buf[i + 1]; if (n === undefined) break;
+    if (n === "u"){ const h = buf.slice(i + 2, i + 6); if (h.length < 4) break; out += String.fromCharCode(parseInt(h, 16)); i += 5; }
+    else { out += esc[n] ?? n; i++; }
+  }
+  return out;
+}
 
 function contexto(){
   const ahora=new Date();
   const fecha = new Intl.DateTimeFormat("es",{weekday:"long",day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"}).format(ahora);
   const pend = tareas().filter(t=>!t.hecho).slice(0,60).map(t=>`- [${t.id}] ${t.texto}${t.proyecto?" (proyecto: "+t.proyecto+")":""}`).join("\n") || "(ninguno)";
   const avs = avisos().filter(a=>!a.hecho).sort((a,b)=>a.cuando-b.cuando).slice(0,40).map(a=>`- [${a.id}] ${localISO(new Date(a.cuando))} ${a.texto}`).join("\n") || "(ninguno)";
-  return `Ahora es ${fecha} (${localISO(ahora)}).${otrosChats ? "\nOtros chats que tiene contigo (temas aparte; lo importante de ellos está en el perfil):\n" + otrosChats : ""}\nTrabajos pendientes:\n${pend}\nRecordatorios pendientes:\n${avs}`;
+  return `Ahora es ${fecha} (${localISO(ahora)}).${resumen ? "\nResumen de lo hablado antes en este chat:\n" + resumen : ""}${otrosChats ? "\nOtros chats que tiene contigo (temas aparte; lo importante de ellos está en el perfil):\n" + otrosChats : ""}\nTrabajos pendientes:\n${pend}\nRecordatorios pendientes:\n${avs}`;
 }
 
 function parsear(texto){
@@ -110,21 +152,26 @@ async function sinIA(texto){
 
 const VOZ = "\n\nAhora conversan por VOZ: responde como se habla, en frases cortas, sin listas, viñetas, emojis ni símbolos; di las fechas y horas en palabras.";
 
-export async function conversar(texto, modelo, { voz = false, imagen = null } = {}){
+// onParcial(texto): la respuesta mientras se escribe (streaming).
+export async function conversar(texto, modelo, { voz = false, imagen = null, onParcial = null } = {}){
   if (!(await tieneClave())){
     if (imagen) return { respuesta:"Para mirar fotos necesito una clave de IA. Ponla gratis en Ajustes (la de Gemini).", hechos:[] };
     return sinIA(texto);
   }
-  try { return await conIA(texto, modelo, voz, imagen); }
+  try { return await conIA(texto, modelo, voz, imagen, onParcial); }
   catch(e){ if (e?.code === "red") return sinIA(texto); throw e; }
 }
 
-async function conIA(texto, modelo, voz, imagen){
+async function conIA(texto, modelo, voz, imagen, onParcial){
   if (imagen && !texto) texto = "Mira esta foto y dime qué ves y qué me recomiendas.";
   const primero = !turnos.length;
   const system = `${REGLAS}${primero ? '\nEs el primer mensaje de este chat: agrega también "titulo" con 2 a 5 palabras que nombren el tema (ej. "Obra Achumani", "Cálculo de losa").' : ""}${voz ? VOZ : ""}\n\n## Lo que sabes de la persona\n${await bloquePerfil()}\n\n## Estado actual\n${contexto()}`;
   const messages = [...turnos.slice(-MAX_TURNOS), { role:"user", content:texto }];
-  const r = parsear(await llamarLLM({ system, messages, modelo, imagen }));
+  const pedido = { system, messages, modelo, imagen, potente: esDificil(texto, imagen) };
+  let ultimo = "";
+  const r = parsear(onParcial
+    ? await enviarEnVivo(pedido, buf => { const p = respuestaParcial(buf); if (p && p !== ultimo){ ultimo = p; onParcial(p); } })
+    : await llamarLLM(pedido));
   const respuesta = typeof r?.respuesta==="string" && r.respuesta.trim() ? r.respuesta.trim() : "Listo.";
   const hechos = await aplicar(r);
   turnos.push({role:"user",content:(imagen ? "[envió una foto] " : "") + texto},{role:"assistant",content:JSON.stringify({respuesta, aplicado:hechos})});
@@ -140,7 +187,7 @@ export function agregarTurno(usuario, respuesta){
 
 /* ---------- Voz en tiempo real (Gemini Live): herramientas en vez de JSON ---------- */
 export async function sistemaViva(){
-  const previos = turnos.slice(-8).map(t => (t.role === "user" ? "Persona: " + t.content : "Tú: " + (()=>{ try { return JSON.parse(t.content).respuesta; } catch { return t.content; } })())).join("\n");
+  const previos = turnos.slice(-16).map(t => (t.role === "user" ? "Persona: " + t.content : "Tú: " + leerRespuesta(t.content))).join("\n");
   return `${PERSONA}
 
 Ahora están conversando POR VOZ en tiempo real, como una llamada. Habla como una persona: frases cortas y naturales, con pausas, sin listas ni símbolos; di fechas y horas en palabras. Si te interrumpe, deja lo que estabas diciendo y escúchale. Saluda brevemente al empezar, por su nombre si lo sabes, y si tiene algo vencido o importante hoy, menciónalo.

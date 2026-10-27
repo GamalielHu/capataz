@@ -30,7 +30,7 @@ export async function enviar(pedido){
   const clave = await leerClave();
   if (!clave) throw { code:"sin_clave" };
   let error;
-  for (const modelo of modelosA(clave, pedido.modelo)){
+  for (const modelo of modelosA(clave, pedido.modelo, pedido.potente)){
     try { return await pedir(clave, { ...pedido, modelo }); }
     catch(e){ error = e; if (!reintentable(e?.code)) throw e; }
   }
@@ -82,4 +82,49 @@ export async function claveGemini(){
   if (plataforma === "electron") return nativo.claveGemini();
   const clave = await leerClave();
   return clave && proveedorDe(clave) === "gemini" ? clave : null;
+}
+
+// Respuesta por partes (streaming) con Gemini: onTexto(acumulado) se llama mientras el modelo escribe.
+// Si el modelo tarda en empezar se pasa al siguiente; si no hay streaming posible (Claude, sin red) usa enviar().
+const ESPERA_INICIO = 15000;
+export async function enviarEnVivo(pedido, onTexto){
+  const clave = await claveGemini();
+  if (!clave) return enviar(pedido);
+  let error;
+  for (const modelo of modelosA(clave, pedido.modelo, pedido.potente)){
+    const { url, headers, body } = peticion(clave, { ...pedido, modelo, stream:true }, true);
+    const corte = new AbortController();
+    let reloj = setTimeout(() => corte.abort(), ESPERA_INICIO), texto = "", recibio = false;
+    try {
+      const r = await fetch(url, { method:"POST", headers, body:JSON.stringify(body), signal:corte.signal });
+      if (r.status !== 200){ let d; try { d = await r.json(); } catch {} throw { code: codigoError(r.status, Array.isArray(d) ? d[0] : d) }; }
+      const lector = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      for (;;){
+        const { value, done } = await lector.read(); if (done) break;
+        buf = (buf + dec.decode(value, { stream:true })).replace(/\r/g, "");
+        let i;
+        while ((i = buf.indexOf("\n\n")) >= 0){
+          const linea = buf.slice(0, i); buf = buf.slice(i + 2);
+          if (!linea.startsWith("data:")) continue;
+          let d; try { d = JSON.parse(linea.slice(5)); } catch { continue; }
+          const t = textoDe(clave, d);
+          if (t){
+            if (!recibio){ recibio = true; clearTimeout(reloj); reloj = setTimeout(() => corte.abort(), 90000); }
+            texto += t; onTexto?.(texto);
+          }
+        }
+      }
+      clearTimeout(reloj);
+      if (texto) return texto;
+      error = { code:"sobrecargado" };
+    } catch(e){
+      clearTimeout(reloj);
+      if (recibio) throw { code:"red" };            // se cortó a la mitad
+      error = e?.code ? e : { code: corte.signal.aborted ? "sobrecargado" : "red" };
+      if (error.code === "red") return enviar(pedido); // fetch bloqueado o sin red: camino normal
+      if (!reintentable(error.code)) throw error;
+    }
+  }
+  throw error;
 }

@@ -109,7 +109,7 @@ ipcMain.handle("ia", async (_e, pedido) => {
   const clave = leerClave();
   if (!clave) throw new Error("sin_clave");
   let error;
-  for (const modelo of modelosA(clave, pedido.modelo)) {
+  for (const modelo of modelosA(clave, pedido.modelo, pedido.potente)) {
     try { return await pedirIA(clave, { ...pedido, modelo }); }
     catch (e) { error = e; if (!reintentable(e.message)) throw e; }
   }

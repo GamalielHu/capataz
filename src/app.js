@@ -128,6 +128,11 @@ $("#adjunto-quitar").addEventListener("click", () => { imagenAdjunta = null; $("
 /* ---------- Conversación con la IA ---------- */
 const chat = $("#chat");
 let ocupado=false;
+// Texto de la IA con negritas (**así**) y viñetas, sin permitir HTML.
+function rico(t){
+  const seguro = String(t||"").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+  return el("span",{ html: seguro.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/^\s*[-*•]\s+/gm, "• ").replace(/^#{1,4}\s*/gm, "") });
+}
 function burbuja(cls, texto){ const b=el("div",{class:"msg "+cls}, texto); chat.append(b); b.scrollIntoView({block:"end",behavior:"smooth"}); return b; }
 function conHechos(b, hechos){ if(hechos?.length) b.append(el("div",{class:"hechos"}, hechos.map(h=>el("span",{class:"hecho"},h)))); return b; }
 
@@ -162,14 +167,14 @@ function mostrarChat(c){
   if(ocupado) return; // espera la respuesta antes de cambiar de chat
   chatActual = c; ls.set("capataz-chat-actual", c.id);
   historialChat = ls.get("capataz-chat:" + c.id, []);
-  usarChat(c.id, chats.filter(x => x !== c && !x.nuevo).sort((a, b) => b.actualizado - a.actualizado).slice(0, 10).map(x => x.titulo));
+  usarChat(c.id, chats.filter(x => x !== c && !x.nuevo).sort((a, b) => b.actualizado - a.actualizado).slice(0, 8));
   $("#titulo-chat").textContent = c.titulo;
   chat.replaceChildren();
   if(!historialChat.length){
     const intro = plantillaIntro.cloneNode(true); chat.append(intro);
     intro.querySelector("#ejemplos")?.addEventListener("click", e => { if(e.target.matches("button")) enviar(e.target.textContent); });
   }
-  for(const m of historialChat) chat.append(conHechos(el("div",{class:"msg "+m.de}, m.mini ? el("img",{src:m.mini, alt:"Foto"}) : null, m.texto), m.hechos));
+  for(const m of historialChat) chat.append(conHechos(el("div",{class:"msg "+m.de}, m.mini ? el("img",{src:m.mini, alt:"Foto"}) : null, m.de === "ia" ? rico(m.texto) : m.texto), m.hechos));
   requestAnimationFrame(() => chat.lastElementChild?.scrollIntoView({block:"end"}));
 }
 function nuevoChat(){
@@ -230,9 +235,10 @@ async function enviar(texto, { voz = false } = {}){
   const pensando = burbuja("ia pensando","Pensando…");
   ocupado=true;
   try{
-    const { respuesta, hechos, titulo } = await conversar(texto, ls.get("capataz-modelo", ""), { voz, imagen });
+    const { respuesta, hechos, titulo } = await conversar(texto, ls.get("capataz-modelo", ""), { voz, imagen,
+      onParcial: t => { pensando.classList.remove("pensando"); pensando.replaceChildren(rico(t)); pensando.scrollIntoView({ block:"end" }); } });
     if(titulo && !chatActual.renombrado){ chatActual.titulo = titulo; chatActual.renombrado = true; $("#titulo-chat").textContent = titulo; guardarChats(); }
-    pensando.classList.remove("pensando"); pensando.textContent = respuesta; conHechos(pensando, hechos);
+    pensando.classList.remove("pensando"); pensando.replaceChildren(rico(respuesta)); conHechos(pensando, hechos);
     guardarChat({ de:"ia", texto:respuesta, hechos });
     hablar(respuesta);
     return { respuesta, hechos };

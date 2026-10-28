@@ -23,7 +23,9 @@ jobs:
           if [ ! -d android ]; then npm run android:add; else npm run android:sync; fi
       - name: Firma fija
         env: { KS: "${{ secrets.CAPATAZ_KEYSTORE }}" }
-        run: if [ -n "$KS" ]; then echo "$KS" | base64 -d > android/app/capataz.keystore; else echo "::warning::Sin secreto CAPATAZ_KEYSTORE: el APK no se podrá instalar encima del anterior"; fi
+        run: |
+          if [ -n "$KS" ]; then echo "$KS" | base64 -d > android/app/capataz.keystore
+          else echo "::warning::Falta el secreto CAPATAZ_KEYSTORE, el APK no se podra instalar encima del anterior"; fi
       - name: APK
         env: { CAPATAZ_KS_PASS: "${{ secrets.CAPATAZ_KS_PASS }}" }
         run: cd android && chmod +x gradlew && ./gradlew assembleDebug

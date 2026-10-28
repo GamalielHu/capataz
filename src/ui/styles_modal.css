@@ -1,0 +1,14 @@
+/* Ventana de la clave de IA */
+.clave-fila{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+.clave-fila b{display:block}
+.clave-resumen{font-family:var(--f-mono);font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.clave-campo{display:flex;align-items:center;gap:6px;border:1.5px solid var(--line);background:var(--surface);border-radius:10px;padding-right:4px}
+.clave-campo:focus-within{border-color:var(--accent)}
+.clave-campo input{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);padding:11px 12px;font-family:var(--f-mono);font-size:14px;outline:none}
+.clave-ojo{background:none;border:0;padding:8px;color:var(--muted);border-radius:8px;display:flex}
+.clave-ojo svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.clave-ojo[aria-pressed="true"]{color:var(--accent);background:var(--accent-soft)}
+.clave-estado.ok{color:var(--done);font-weight:600}
+.clave-estado.error{color:var(--danger);font-weight:600}
+.clave-acciones{flex-wrap:wrap}
+.clave-importar{display:block;text-align:center;cursor:pointer}

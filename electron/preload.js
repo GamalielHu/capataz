@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld("capatazNativo", {
   ia: cuerpo => ipcRenderer.invoke("ia", cuerpo),
   voz: (texto, voz) => ipcRenderer.invoke("voz", texto, voz),
   guardarClave: clave => ipcRenderer.invoke("clave:guardar", clave),
+  saveKey: clave => ipcRenderer.invoke("save-key", clave),
+  getKey: () => ipcRenderer.invoke("get-key"),
   tieneClave: () => ipcRenderer.invoke("clave:hay"),
   claveGemini: () => ipcRenderer.invoke("clave:gemini"),
   autoinicio: activar => ipcRenderer.invoke("autoinicio", activar),

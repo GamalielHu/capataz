@@ -8,7 +8,7 @@ import { revisarAlarmas } from "./core/alarmas.js";
 import { plataforma, nativo } from "./adapters/plataforma.js";
 import { pedirPermiso, alAccionar } from "./adapters/notifications.js";
 import { dictar, detener, puedeDictar, consejoDictado, hablar as decir, callar, reiniciarVozNatural } from "./adapters/voice.js";
-import { guardarClave, tieneClave } from "./adapters/llm.js";
+import { iniciarModalClave } from "./core/settings_modal.js";
 import { alPedirHablar } from "./adapters/dispositivo.js";
 
 const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
@@ -214,7 +214,7 @@ $("#btn-nuevo-chat").addEventListener("click", nuevoChat);
 $("#btn-nuevo-chat2").addEventListener("click", () => { dlgChats.close(); nuevoChat(); });
 
 const ERRORES = {
-  sin_clave:"Para conversar libremente, pon una clave gratuita de Gemini en Ajustes (engranaje arriba).",
+  sin_clave:"Para conversar libremente, pon una clave gratuita de Gemini en Ajustes → Clave de IA.",
   clave_invalida:"La clave de IA no es válida. Revísala en Ajustes.",
   rate_limited:"Llegaste al límite gratuito por ahora. Intenta de nuevo en un rato.",
   sobrecargado:"La IA está ocupada. Intenta de nuevo en un momento.",
@@ -246,7 +246,7 @@ async function enviar(texto, { voz = false } = {}){
     pensando.remove();
     notaChat.textContent = ERRORES[e?.code] || "Se cortó la conexión. Vuelve a enviar el mensaje."; notaChat.classList.add("error"); $("#in-chat").value=texto;
     if(imagen){ imagenAdjunta = imagen; $("#adjunto").hidden = false; }
-    if(e?.code==="clave_invalida") abrirAjustes();
+    if(e?.code==="clave_invalida") modalClave.abrir("La clave de IA no es válida. Revísala o pega otra.");
     return { error: ERRORES[e?.code] || "Se cortó la conexión." };
   }finally{ ocupado=false; }
 }
@@ -328,17 +328,15 @@ function renderPerfil(){
     el("button",{class:"del",type:"button",onclick:async()=>{ await olvidar(f.clave); renderPerfil(); }},"Olvidar"))));
 }
 async function abrirAjustes(){
-  $("#in-clave").value = ""; $("#in-modelo").value = ls.get("capataz-modelo", "");
+  $("#in-modelo").value = ls.get("capataz-modelo", ""); modalClave.resumen();
   $("#sel-voz").value = ls.get("capataz-voz-nombre", "Charon"); $("#chk-interrumpir").checked = ls.get("capataz-interrumpir", false);
-  $("#nota-clave").textContent = (await tieneClave()) ? "Hay una clave guardada: Capataz conversa libremente. Escribe otra solo si quieres cambiarla." : "Opcional y gratis: entra a aistudio.google.com/apikey con tu cuenta de Google, toca “Create API key” y pégala aquí. Sin clave, Capataz igual anota avisos y trabajos sin internet.";
   if(plataforma==="electron"){ $("#fila-autoinicio").hidden=false; $("#chk-autoinicio").checked = await nativo.autoinicio(); }
   renderPerfil();
   dlg.showModal();
 }
 $("#btn-ajustes").addEventListener("click", abrirAjustes);
+const modalClave = iniciarModalClave({ alCambiar: reiniciarVozNatural });
 $("#btn-guardar-ajustes").addEventListener("click", async () => {
-  const clave = $("#in-clave").value.trim();
-  if(clave) try { await guardarClave(clave); reiniciarVozNatural(); } catch { $("#nota-clave").textContent = "No se pudo guardar la clave en este equipo."; return; }
   ls.set("capataz-modelo", $("#in-modelo").value.trim());
   ls.set("capataz-voz-nombre", $("#sel-voz").value);
   ls.set("capataz-interrumpir", $("#chk-interrumpir").checked);

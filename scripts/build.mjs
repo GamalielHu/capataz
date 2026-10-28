@@ -1,6 +1,6 @@
 // Empaqueta src/ en www/ (un solo bundle IIFE: sirve en navegador, Capacitor y Electron por file://)
 import { build } from "esbuild";
-import { cpSync, mkdirSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync, readdirSync } from "node:fs";
 
 rmSync("www", { recursive: true, force: true });
 mkdirSync("www", { recursive: true });
@@ -14,4 +14,6 @@ await build({
   logLevel: "info"
 });
 cpSync("src/index.html", "www/index.html");
-cpSync("src/estilos.css", "www/estilos.css");
+// estilos.css + los de src/ui/ en un solo archivo
+writeFileSync("www/estilos.css", [readFileSync("src/estilos.css", "utf8"),
+  ...readdirSync("src/ui").filter(f => f.endsWith(".css")).sort().map(f => readFileSync("src/ui/" + f, "utf8"))].join("\n"));

@@ -77,21 +77,66 @@ function resumenDiario() {
   n.on("click", mostrar); n.show();
 }
 
-/* ---------- Clave de API (cifrada con DPAPI de Windows vía safeStorage) ---------- */
-const archivoClave = () => path.join(app.getPath("userData"), "clave.bin");
-// Sin cifrado del sistema (algunos Linux) se guarda tal cual, solo legible por el usuario.
-const SIN_CIFRAR = Buffer.from("texto:");
-function leerClave() {
-  try {
-    const b = fs.readFileSync(archivoClave());
-    return b.subarray(0, SIN_CIFRAR.length).equals(SIN_CIFRAR) ? b.subarray(SIN_CIFRAR.length).toString() : safeStorage.decryptString(b);
-  } catch { return null; }
+/* ---------- Clave de API: %APPDATA%/CapatazConfig/secrets.json, fuera de la carpeta del programa ---------- */
+// Windows: cifrada con DPAPI del usuario (no depende de archivos de Capataz, sobrevive a desinstalar y reinstalar).
+// Otros sistemas o si DPAPI falla: AES-GCM con una llave derivada del usuario y el equipo.
+const crypto = require("node:crypto");
+const os = require("node:os");
+const { execFileSync } = require("node:child_process");
+const dirConfig = () => path.join(app.getPath("appData"), "CapatazConfig");
+const archivoSecretos = () => path.join(dirConfig(), "secrets.json");
+const archivoClaveViejo = () => path.join(app.getPath("userData"), "clave.bin");
+
+function dpapi(modo, entrada) {
+  const ps = modo === "cifrar"
+    ? "Add-Type -AssemblyName System.Security;[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($env:CPZ_DATO),$null,'CurrentUser'))"
+    : "Add-Type -AssemblyName System.Security;[Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($env:CPZ_DATO),$null,'CurrentUser'))";
+  return execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps],
+    { env: { ...process.env, CPZ_DATO: entrada }, windowsHide: true, timeout: 15000 }).toString().trim();
 }
-ipcMain.handle("clave:guardar", (_e, clave) => {
-  if (!clave) { fs.rmSync(archivoClave(), { force: true }); return; }
-  fs.writeFileSync(archivoClave(), safeStorage.isEncryptionAvailable()
-    ? safeStorage.encryptString(clave) : Buffer.concat([SIN_CIFRAR, Buffer.from(clave)]), { mode: 0o600 });
-});
+const llaveLocal = sal => crypto.pbkdf2Sync(`capataz|${os.userInfo().username}|${os.hostname()}`, sal, 100000, 32, "sha256");
+function aesCifrar(texto) {
+  const sal = crypto.randomBytes(16), iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", llaveLocal(sal), iv);
+  const ct = Buffer.concat([c.update(texto, "utf8"), c.final(), c.getAuthTag()]);
+  return Buffer.concat([sal, iv, ct]).toString("base64");
+}
+function aesDescifrar(b64) {
+  const b = Buffer.from(b64, "base64");
+  const d = crypto.createDecipheriv("aes-256-gcm", llaveLocal(b.subarray(0, 16)), b.subarray(16, 28));
+  d.setAuthTag(b.subarray(b.length - 16));
+  return Buffer.concat([d.update(b.subarray(28, b.length - 16)), d.final()]).toString("utf8");
+}
+
+let claveCache;
+function guardarSecreto(clave) {
+  claveCache = clave || null;
+  if (!clave) { fs.rmSync(archivoSecretos(), { force: true }); fs.rmSync(archivoClaveViejo(), { force: true }); return; }
+  let registro;
+  if (process.platform === "win32") try { registro = { cifrado: "dpapi", dato: dpapi("cifrar", clave) }; } catch {}
+  registro ||= { cifrado: "aes", dato: aesCifrar(clave) };
+  fs.mkdirSync(dirConfig(), { recursive: true });
+  fs.writeFileSync(archivoSecretos(), JSON.stringify({ version: 1, api_key_ia: registro, guardado: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  fs.rmSync(archivoClaveViejo(), { force: true });
+}
+function leerClave() {
+  if (claveCache !== undefined) return claveCache;
+  try {
+    const { api_key_ia: r } = JSON.parse(fs.readFileSync(archivoSecretos(), "utf8"));
+    claveCache = r.cifrado === "dpapi" ? dpapi("descifrar", r.dato) : aesDescifrar(r.dato);
+    return claveCache || null;
+  } catch {}
+  // Migración desde versiones anteriores (clave.bin en la carpeta de datos).
+  try {
+    const SIN_CIFRAR = Buffer.from("texto:"), b = fs.readFileSync(archivoClaveViejo());
+    const vieja = b.subarray(0, SIN_CIFRAR.length).equals(SIN_CIFRAR) ? b.subarray(SIN_CIFRAR.length).toString() : safeStorage.decryptString(b);
+    if (vieja) { guardarSecreto(vieja); return vieja; }
+  } catch {}
+  return null;
+}
+ipcMain.handle("save-key", (_e, clave) => guardarSecreto(String(clave || "").trim()));
+ipcMain.handle("get-key", () => leerClave() || "");
+ipcMain.handle("clave:guardar", (_e, clave) => guardarSecreto(String(clave || "").trim()));
 ipcMain.handle("clave:hay", () => !!leerClave());
 ipcMain.handle("clave:gemini", () => { const c = leerClave(); return c && proveedorDe(c) === "gemini" ? c : null; });
 

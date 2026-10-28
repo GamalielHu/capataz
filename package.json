@@ -44,6 +44,6 @@
       "!node_modules/@aparajita/**"
     ],
     "win": { "target": "nsis", "icon": "recursos/icono.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true }
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "deleteAppDataOnUninstall": false }
   }
 }

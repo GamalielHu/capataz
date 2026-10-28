@@ -95,10 +95,10 @@
 <dialog id="ajustes">
   <form method="dialog" class="ajustes">
     <h2>Ajustes</h2>
-    <label>Clave de IA: Gemini (gratis) o Claude
-      <input id="in-clave" type="password" autocomplete="off" placeholder="Pega aquí tu clave de Gemini">
-    </label>
-    <p class="nota" id="nota-clave"></p>
+    <div class="clave-fila">
+      <div><b>Clave de IA</b><span id="clave-resumen" class="clave-resumen">Sin clave</span></div>
+      <button type="button" class="btn" id="btn-editar-clave">Editar</button>
+    </div>
     <label>Modelo (opcional)
       <input id="in-modelo" autocomplete="off" placeholder="automático">
     </label>
@@ -122,6 +122,25 @@
       <button type="button" class="btn" id="btn-guardar-ajustes">Guardar</button>
       <button value="cerrar" class="del">Cerrar</button>
     </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-clave" class="modal-clave">
+  <form method="dialog" class="ajustes">
+    <h2>Clave de IA</h2>
+    <p class="nota">Gemini (gratis, de aistudio.google.com/apikey) o Claude (empieza con sk-ant-). Queda guardada aunque desinstales o actualices la app.</p>
+    <div class="clave-campo">
+      <input id="in-clave" type="password" autocomplete="off" spellcheck="false" placeholder="Pega aquí tu clave" aria-label="Clave de IA">
+      <button type="button" class="clave-ojo" id="btn-ver-clave" aria-label="Mostrar clave" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    </div>
+    <p class="nota clave-estado" id="nota-clave" role="status"></p>
+    <div class="acciones clave-acciones">
+      <button type="button" class="btn" id="btn-guardar-clave">Probar y guardar</button>
+      <button type="button" class="del" id="btn-probar-clave">Solo probar</button>
+      <button type="button" class="del" id="btn-borrar-clave">Borrar clave</button>
+    </div>
+    <label class="del clave-importar" id="fila-importar" hidden><input type="file" id="in-respaldo" accept=".enc,application/octet-stream,*/*" hidden>Restaurar desde Documentos/Capataz/config.enc</label>
+    <div class="acciones"><button value="cerrar" class="del">Cerrar</button></div>
   </form>
 </dialog>
 

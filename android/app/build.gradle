@@ -7,8 +7,8 @@ android {
         applicationId "bo.capataz.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+        versionName "1." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,8 +16,24 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Firma fija (secretos de GitHub CAPATAZ_KEYSTORE y CAPATAZ_KS_PASS): cada APK nuevo se instala
+    // encima del anterior sin desinstalar, sin perder datos ni la clave. Sin ellos se usa la firma de depuración.
+    def firma = file("capataz.keystore")
+    def claveFirma = System.getenv("CAPATAZ_KS_PASS")
+    signingConfigs {
+        capataz {
+            storeFile firma
+            storePassword claveFirma
+            keyAlias "capataz"
+            keyPassword claveFirma
+        }
+    }
     buildTypes {
+        debug {
+            if (firma.exists() && claveFirma) signingConfig signingConfigs.capataz
+        }
         release {
+            if (firma.exists() && claveFirma) signingConfig signingConfigs.capataz
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

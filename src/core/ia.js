@@ -100,9 +100,14 @@ function contexto(){
   return `Ahora es ${fecha} (${localISO(ahora)}).${resumen ? "\nResumen de lo hablado antes en este chat:\n" + resumen : ""}${otrosChats ? "\nOtros chats que tiene contigo (temas aparte; lo importante de ellos está en el perfil):\n" + otrosChats : ""}\nTrabajos pendientes:\n${pend}\nRecordatorios pendientes:\n${avs}`;
 }
 
+// JSON del modelo; si llegó cortado o como texto suelto, se rescata la respuesta en vez de fallar.
 function parsear(texto){
   const i = texto.indexOf("{"), j = texto.lastIndexOf("}");
-  try { return JSON.parse(texto.slice(i, j+1)); } catch { throw { code:"invalid_json" }; }
+  try { return JSON.parse(texto.slice(i, j+1)); } catch {}
+  const parcial = respuestaParcial(texto).trim();
+  if (parcial) return { respuesta: parcial };
+  if (i < 0 && texto.trim()) return { respuesta: texto.trim() };
+  throw { code:"invalid_json" };
 }
 const lista = v => Array.isArray(v) ? v : [];
 
@@ -138,14 +143,16 @@ function siguienteHora(hora, fecha){
 
 // Devuelve {respuesta, hechos}. Lanza {code} si falla.
 // Sin clave (o sin internet) responde el intérprete propio; con clave conversa la IA.
-async function sinIA(texto){
+// soloSiEntiende: devuelve null en vez de "No te entendí".
+async function sinIA(texto, soloSiEntiende = false){
   const estado = {
     tareas: tareas().filter(t=>!t.hecho).sort((a,b)=>b.creado-a.creado),
     avisos: avisos().filter(a=>!a.hecho).sort((a,b)=>a.cuando-b.cuando),
     perfil: listarPerfil(),
     proyectos: [...new Set(tareas().map(t=>t.proyecto).filter(Boolean))]
   };
-  const r = interpretar(texto, estado) || { respuesta: "No te entendí. " + AYUDA };
+  const r = interpretar(texto, estado) || (soloSiEntiende ? null : { respuesta: "No te entendí. " + AYUDA });
+  if (!r) return null;
   const hechos = (await aplicar(r)).filter(h => !/^Aprendí|^Olvidé/.test(h));
   return { respuesta: r.respuesta, hechos };
 }
@@ -159,7 +166,15 @@ export async function conversar(texto, modelo, { voz = false, imagen = null, onP
     return sinIA(texto);
   }
   try { return await conIA(texto, modelo, voz, imagen, onParcial); }
-  catch(e){ if (e?.code === "red") return sinIA(texto); throw e; }
+  catch(e){
+    if (e?.code === "red") return sinIA(texto);
+    // IA saturada o respuesta ilegible: si es una orden de agenda, el intérprete propio la resuelve igual.
+    if (!imagen && ["sobrecargado", "rate_limited", "invalid_json"].includes(e?.code)){
+      const r = await sinIA(texto, true);
+      if (r) return { ...r, respuesta: r.respuesta + " (La IA de Google está saturada, así que lo resolví yo solo.)" };
+    }
+    throw e;
+  }
 }
 
 async function conIA(texto, modelo, voz, imagen, onParcial){

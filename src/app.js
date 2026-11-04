@@ -217,7 +217,7 @@ const ERRORES = {
   sin_clave:"Para conversar libremente, pon una clave gratuita de Gemini en Ajustes → Clave de IA.",
   clave_invalida:"La clave de IA no es válida. Revísala en Ajustes.",
   rate_limited:"Llegaste al límite gratuito por ahora. Intenta de nuevo en un rato.",
-  sobrecargado:"La IA está ocupada. Intenta de nuevo en un momento.",
+  sobrecargado:"La IA de Google está saturada ahora mismo. Intenta de nuevo en un momento.",
   red:"Sin conexión a internet. Tus listas y avisos siguen funcionando.",
   invalid_json:"No entendí bien la respuesta. Repite el mensaje, por favor."
 };
@@ -244,10 +244,11 @@ async function enviar(texto, { voz = false } = {}){
     return { respuesta, hechos };
   }catch(e){
     pensando.remove();
-    notaChat.textContent = ERRORES[e?.code] || "Se cortó la conexión. Vuelve a enviar el mensaje."; notaChat.classList.add("error"); $("#in-chat").value=texto;
+    console.error("Capataz IA:", e);
+    notaChat.textContent = ERRORES[e?.code] || `No pude responder (${e?.code || e?.message || "error"}). Vuelve a enviar el mensaje.`; notaChat.classList.add("error"); $("#in-chat").value=texto;
     if(imagen){ imagenAdjunta = imagen; $("#adjunto").hidden = false; }
     if(e?.code==="clave_invalida") modalClave.abrir("La clave de IA no es válida. Revísala o pega otra.");
-    return { error: ERRORES[e?.code] || "Se cortó la conexión." };
+    return { error: ERRORES[e?.code] || "No pude responder. Vuelve a intentarlo." };
   }finally{ ocupado=false; }
 }
 $("#f-chat").addEventListener("submit", e => { e.preventDefault(); enviar($("#in-chat").value); });

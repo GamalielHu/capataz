@@ -2,13 +2,14 @@
 import { $, el, ls, cuandoTexto, localISO, nuevoId } from "./core/util.js";
 import { cargar, alCambiar, recargar, tareas, avisos, agregarTarea, agregarAviso, actualizar, borrar, alternarHecho, posponer } from "./core/datos.js";
 import { cargarPerfil, listarPerfil, olvidar } from "./core/memoria.js";
-import { conversar, borrarHistorial, agregarTurno, usarChat } from "./core/ia.js";
+import { conversar, borrarHistorial, agregarTurno, usarChat, INFORME } from "./core/ia.js";
 import { iniciarVozViva } from "./core/vozViva.js";
 import { revisarAlarmas } from "./core/alarmas.js";
 import { plataforma, nativo } from "./adapters/plataforma.js";
 import { pedirPermiso, alAccionar } from "./adapters/notifications.js";
 import { dictar, detener, puedeDictar, consejoDictado, hablar as decir, callar, reiniciarVozNatural } from "./adapters/voice.js";
 import { iniciarModalClave } from "./core/settings_modal.js";
+import { tieneClave } from "./adapters/llm.js";
 import { alPedirHablar } from "./adapters/dispositivo.js";
 
 const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
@@ -223,15 +224,18 @@ const ERRORES = {
 };
 
 // Devuelve la respuesta (o null si falló).
-async function enviar(texto, { voz = false } = {}){
+// oculto: pedido interno (como el informe de la mañana) que no se muestra como mensaje de la persona.
+async function enviar(texto, { voz = false, oculto = false } = {}){
   texto = String(texto||"").trim();
   const imagen = voz ? null : imagenAdjunta;
   if((!texto && !imagen) || ocupado) return null;
   if(imagen){ imagenAdjunta = null; $("#adjunto").hidden = true; }
   $("#intro")?.remove();
   $("#in-chat").value=""; notaChat.textContent=""; notaChat.classList.remove("error");
-  const b = burbuja("yo", texto); if(imagen) b.prepend(el("img",{src:imagen.mini, alt:"Foto"}));
-  guardarChat({ de:"yo", texto, ...(imagen ? { mini:imagen.mini } : {}) });
+  if(!oculto){
+    const b = burbuja("yo", texto); if(imagen) b.prepend(el("img",{src:imagen.mini, alt:"Foto"}));
+    guardarChat({ de:"yo", texto, ...(imagen ? { mini:imagen.mini } : {}) });
+  }
   const pensando = burbuja("ia pensando","Pensando…");
   ocupado=true;
   try{
@@ -330,6 +334,7 @@ function renderPerfil(){
 }
 async function abrirAjustes(){
   $("#in-modelo").value = ls.get("capataz-modelo", ""); modalClave.resumen();
+  $("#sel-personalidad").value = ls.get("capataz-personalidad", "companero"); $("#chk-informe").checked = ls.get("capataz-informe-activo", true);
   $("#sel-voz").value = ls.get("capataz-voz-nombre", "Charon"); $("#chk-interrumpir").checked = ls.get("capataz-interrumpir", false);
   if(plataforma==="electron"){ $("#fila-autoinicio").hidden=false; $("#chk-autoinicio").checked = await nativo.autoinicio(); }
   renderPerfil();
@@ -340,10 +345,23 @@ const modalClave = iniciarModalClave({ alCambiar: reiniciarVozNatural });
 $("#btn-guardar-ajustes").addEventListener("click", async () => {
   ls.set("capataz-modelo", $("#in-modelo").value.trim());
   ls.set("capataz-voz-nombre", $("#sel-voz").value);
+  ls.set("capataz-personalidad", $("#sel-personalidad").value);
+  ls.set("capataz-informe-activo", $("#chk-informe").checked);
   ls.set("capataz-interrumpir", $("#chk-interrumpir").checked);
   if(plataforma==="electron") await nativo.autoinicio($("#chk-autoinicio").checked);
   dlg.close();
 });
+
+/* ---------- Informe de la mañana: al abrir la app por primera vez en el día (de 5:00 a 13:00) ---------- */
+async function informeDeLaManana(){
+  const hoy = new Date().toDateString(), h = new Date().getHours();
+  if(!ls.get("capataz-informe-activo", true) || ls.get("capataz-informe-dia", "") === hoy || h < 5 || h >= 13) return;
+  if(!(await tieneClave())) return;
+  ls.set("capataz-informe-dia", hoy);
+  abrir("hablar");
+  const r = await enviar(INFORME, { oculto:true });
+  if(r?.respuesta && !chkVoz.checked) decir(r.respuesta);  // el informe se dice en voz alta aunque la lectura esté apagada
+}
 
 /* ---------- Arranque ---------- */
 if(plataforma==="web") $("#nota-avisos").textContent = "En la versión web los avisos solo suenan con la página abierta.";
@@ -360,6 +378,7 @@ alAccionar(async (accion, id) => {
     setSync(true, plataforma==="web" ? "Guardado en este navegador" : "Guardado en este dispositivo");
   }catch{ setSync(false, "No se pudo abrir la base de datos"); }
   await pedirPermiso();
+  informeDeLaManana();
   // Widget / atajo "Hablar" (Android) y Ctrl+Alt+Espacio (Windows): abre directo la conversación por voz.
   alPedirHablar(() => { if(!modoVoz.activo) abrirVoz(); });
 })();

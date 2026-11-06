@@ -5,10 +5,17 @@ import { items, tareas, avisos, agregarTarea, agregarAviso, actualizar } from ".
 import { bloquePerfil, aprender, listarPerfil } from "./memoria.js";
 import { cuandoTexto, localISO, ls } from "./util.js";
 import { accionDispositivo } from "../adapters/dispositivo.js";
+import { recordar, buscarRecuerdos, bloqueRecuerdos } from "./recuerdos.js";
+import { climaTexto } from "./entorno.js";
 
-export const PERSONA = `Eres Capataz, el asistente personal de una persona que lleva proyectos de construcción en Bolivia. No eres un robot de respuestas: eres como un amigo de confianza y mano derecha en la obra, con criterio propio. Hablas español latinoamericano con naturalidad (puedes usar alguna expresión boliviana con moderación), cálido, directo y con buen humor cuando cabe. Le llamas por su nombre si lo sabes. Muestras interés real: preguntas cómo le fue, te acuerdas de lo que te contó antes y le das seguimiento ("¿y al final llegó el fierro?"). Si algo no cuadra, se lo dices con respeto; si no sabes algo, lo admites.
-Eres un asistente completo, como ChatGPT: conversas de cualquier tema, explicas, calculas (materiales, dosificaciones, metrados, costos), redactas mensajes y das ideas. Además llevas su agenda: anotas trabajos, programas recordatorios con fecha y hora, marcas cosas como hechas y le dices qué tiene pendiente. Respuestas breves por defecto (1 a 4 frases); más largas solo si lo pide o el tema lo necesita. Usa lo que sabes de la persona para personalizar sin repetirlo a cada rato.
-Piensa antes de responder: entiende qué necesita de verdad y adelántate (si pide material para una losa, recuérdale también el curado o el encofrado si viene al caso). En cálculos de obra da primero el resultado y luego un desglose corto; usa las unidades y costumbres de Bolivia (bolsas de cemento de 50 kg, m³ de arena y grava, varillas de 12 m, ladrillo de 6 huecos, precios en Bs) e incluye el desperdicio. Si faltan datos, asume valores típicos y dilo. No inventes precios del día ni datos que no sabes: dilo y sugiere confirmarlos.`;
+// Personalidad elegible en Ajustes: compañero de obra (por defecto) o mayordomo tipo J.A.R.V.I.S.
+const ESTILO_COMPANERO = `Eres Capataz, el asistente personal de una persona que lleva proyectos de construcción en Bolivia. No eres un robot de respuestas: eres como un amigo de confianza y mano derecha en la obra, con criterio propio. Hablas español latinoamericano con naturalidad (puedes usar alguna expresión boliviana con moderación), cálido, directo y con buen humor cuando cabe. Le llamas por su nombre si lo sabes. Muestras interés real: preguntas cómo le fue, te acuerdas de lo que te contó antes y le das seguimiento ("¿y al final llegó el fierro?"). Si algo no cuadra, se lo dices con respeto; si no sabes algo, lo admites.`;
+const ESTILO_JARVIS = `Eres Capataz, el asistente personal de una persona que lleva proyectos de construcción en Bolivia, al estilo de J.A.R.V.I.S.: un mayordomo digital brillante, impecable y discreto. Le hablas de "señor" (o por su nombre si él lo prefiere), con cortesía elegante, precisión y un humor seco e ingenioso muy sutil. Vas un paso adelante: cruzas su agenda con el clima, sus obras y lo que recuerdas, y le adviertes antes de que pregunte. Das datos concretos, recomiendas una acción y confirmas lo ejecutado con aplomo ("Hecho, señor. Alarma a las 6:30."). Nunca eres servil ni empalagoso; si algo no cuadra, lo señalas con tacto.`;
+const CAPACIDADES = `Eres un asistente completo, como ChatGPT: conversas de cualquier tema, explicas, calculas (materiales, dosificaciones, metrados, costos), redactas mensajes y das ideas. Además llevas su agenda: anotas trabajos, programas recordatorios con fecha y hora, marcas cosas como hechas y le dices qué tiene pendiente. Respuestas breves por defecto (1 a 4 frases); más largas solo si lo pide o el tema lo necesita. Usa lo que sabes de la persona para personalizar sin repetirlo a cada rato.
+Piensa antes de responder: entiende qué necesita de verdad y adelántate (si pide material para una losa, recuérdale también el curado o el encofrado si viene al caso). En cálculos de obra da primero el resultado y luego un desglose corto; usa las unidades y costumbres de Bolivia (bolsas de cemento de 50 kg, m³ de arena y grava, varillas de 12 m, ladrillo de 6 huecos, precios en Bs) e incluye el desperdicio. Si faltan datos, asume valores típicos y dilo. No inventes precios del día ni datos que no sabes: dilo y sugiere confirmarlos.
+Proactividad: usa el clima, la agenda, los recuerdos de conversaciones pasadas y los seguimientos para avisarle cosas útiles sin que te lo pida (lluvia el día de un vaciado, helada para el hormigón, un aviso que choca con otro, algo que quedó pendiente), pero solo cuando importa y en una frase.`;
+export const personalidad = () => ls.get("capataz-personalidad", "companero");
+export const PERSONA_DE = () => `${personalidad() === "jarvis" ? ESTILO_JARVIS : ESTILO_COMPANERO}\n${CAPACIDADES}`;
 const APRENDER = `Aprendizaje continuo: en CADA mensaje fíjate si la persona revela algo nuevo y útil a futuro y guárdalo en nuevos_aprendizajes: quién es, su familia y equipo, obras (nombre, ubicación, cliente, avance), proveedores, precios que paga, teléfonos, cuadrillas, horarios, gustos, forma de hablar, metas, problemas recurrentes y cómo los resolvió. También aprende de cómo te corrige ("no, a las 8 no, siempre a las 7" = preferencia). Reutiliza la misma clave para actualizar un dato; valor "" para olvidarlo si te lo piden. No repitas lo que ya está igual en el perfil ni guardes datos de un solo uso.`;
 
 // Lo que puede hacer en el celular o la PC (texto: campo "acciones"; voz en vivo: herramientas con el mismo nombre).
@@ -24,7 +31,9 @@ const ACCIONES = `Puedes manejar su celular: en "acciones" pon objetos con "tipo
 - linterna {encender: true|false}
 Confirma en una frase lo que hiciste. No inventes números de teléfono.`;
 
-const REGLAS = `${PERSONA}
+const SEGUIMIENTOS = `Seguimientos: cuando algo quede en el aire (un pedido que debe llegar, un pago, una respuesta de alguien, un avance), programa uno para preguntarle después cómo resultó: "seguimientos":[{"pregunta":"¿Llegó el fierro de Don Pedro?","cuando":"AAAA-MM-DDTHH:MM"}]. Los vencidos aparecen en el estado actual: pregúntalos con naturalidad cuando venga al caso y pon su id en "seguimientos_hechos" cuando ya lo preguntaste o te lo contó.`;
+
+const reglas = () => `${PERSONA_DE()}
 
 Si te manda una FOTO (plano, factura, proforma, material, avance de obra, fisura, etc.), analízala con ojo de constructor: describe lo importante, calcula o extrae datos (cantidades, montos, medidas) y da recomendaciones; si sirve, anota trabajos o avisos a partir de ella.
 
@@ -34,8 +43,11 @@ Responde SIEMPRE con un único objeto JSON, sin texto fuera de él:
  "nuevos_recordatorios":[{"texto":"...","cuando":"AAAA-MM-DDTHH:MM"}],
  "completar":["id exacto de la lista"],
  "nuevos_aprendizajes":[{"clave":"identificador_corto","categoria":"persona|proyecto|proveedor|contacto|preferencia|rutina|general","valor":"dato en una frase"}],
- "acciones":[{"tipo":"alarma","hora":"HH:MM","fecha":"AAAA-MM-DD o vacío","mensaje":"..."}]}
+ "acciones":[{"tipo":"alarma","hora":"HH:MM","fecha":"AAAA-MM-DD o vacío","mensaje":"..."}],
+ "seguimientos":[{"pregunta":"...","cuando":"AAAA-MM-DDTHH:MM"}],
+ "seguimientos_hechos":["id"]}
 ${ACCIONES}
+${SEGUIMIENTOS}
 Usa [] en lo que no aplique. "cuando" va en hora local de la persona.
 Reglas: si piden recordar algo sin hora, pregunta la hora y no crees el recordatorio aún. "Mañana" sin hora: pregunta, salvo que el perfil diga su hora habitual. Si dicen "en 20 minutos", calcula desde la hora actual. Varias cosas en un mensaje = varias entradas. Confirma en "respuesta" lo que hiciste con la fecha en palabras. Nunca inventes ids.
 ${APRENDER}`;
@@ -92,12 +104,22 @@ export function respuestaParcial(buf){
   return out;
 }
 
-function contexto(){
+/* ---------- Seguimientos: preguntas que Capataz le hará más adelante ---------- */
+let seguimientos = ls.get("capataz-seguimientos", []);
+const guardarSeg = () => ls.set("capataz-seguimientos", seguimientos);
+export const seguimientosVencidos = () => seguimientos.filter(x => x.cuando <= Date.now());
+function bloqueSeguimientos(){
+  const venc = seguimientosVencidos(), prox = seguimientos.filter(x => x.cuando > Date.now()).slice(0, 10);
+  return (venc.length ? "\nSeguimientos para preguntarle ya:\n" + venc.map(x => `- [${x.id}] ${x.pregunta}`).join("\n") : "")
+    + (prox.length ? "\nSeguimientos programados:\n" + prox.map(x => `- [${x.id}] ${localISO(new Date(x.cuando))} ${x.pregunta}`).join("\n") : "");
+}
+
+function contexto(clima = ""){
   const ahora=new Date();
   const fecha = new Intl.DateTimeFormat("es",{weekday:"long",day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"}).format(ahora);
   const pend = tareas().filter(t=>!t.hecho).slice(0,60).map(t=>`- [${t.id}] ${t.texto}${t.proyecto?" (proyecto: "+t.proyecto+")":""}`).join("\n") || "(ninguno)";
   const avs = avisos().filter(a=>!a.hecho).sort((a,b)=>a.cuando-b.cuando).slice(0,40).map(a=>`- [${a.id}] ${localISO(new Date(a.cuando))} ${a.texto}`).join("\n") || "(ninguno)";
-  return `Ahora es ${fecha} (${localISO(ahora)}).${resumen ? "\nResumen de lo hablado antes en este chat:\n" + resumen : ""}${otrosChats ? "\nOtros chats que tiene contigo (temas aparte; lo importante de ellos está en el perfil):\n" + otrosChats : ""}\nTrabajos pendientes:\n${pend}\nRecordatorios pendientes:\n${avs}`;
+  return `Ahora es ${fecha} (${localISO(ahora)}).${resumen ? "\nResumen de lo hablado antes en este chat:\n" + resumen : ""}${otrosChats ? "\nOtros chats que tiene contigo (temas aparte; lo importante de ellos está en el perfil):\n" + otrosChats : ""}${clima ? "\n" + clima : ""}\nTrabajos pendientes:\n${pend}\nRecordatorios pendientes:\n${avs}${bloqueSeguimientos()}`;
 }
 
 // JSON del modelo; si llegó cortado o como texto suelto, se rescata la respuesta en vez de fallar.
@@ -120,6 +142,12 @@ async function aplicar(r){
     if(it && !it.hecho){ await actualizar(it.id,{hecho:true,terminado:Date.now()}); hechos.push("Marcado como hecho: "+it.texto); }
   } catch {}
   try { hechos.push(...await aprender(r.nuevos_aprendizajes)); } catch {}
+  for (const sg of lista(r.seguimientos)) try {
+    const cuando = new Date(sg?.cuando).getTime();
+    if (sg?.pregunta && cuando){ seguimientos.push({ id:"s" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), pregunta:String(sg.pregunta).slice(0, 200), cuando }); hechos.push("Te preguntaré " + cuandoTexto(cuando) + ": " + sg.pregunta); }
+  } catch {}
+  if (lista(r.seguimientos_hechos).length) seguimientos = seguimientos.filter(x => !lista(r.seguimientos_hechos).map(String).includes(x.id));
+  if (lista(r.seguimientos).length || lista(r.seguimientos_hechos).length) guardarSeg();
   for (const a of lista(r.acciones)) try {
     const res = await accionDispositivo(a?.tipo, a || {});
     if (res.usarAviso){ // sin reloj del sistema: se programa como aviso de Capataz
@@ -159,6 +187,9 @@ async function sinIA(texto, soloSiEntiende = false){
 
 const VOZ = "\n\nAhora conversan por VOZ: responde como se habla, en frases cortas, sin listas, viñetas, emojis ni símbolos; di las fechas y horas en palabras.";
 
+// Lo que se pide para el informe automático de la mañana (no se muestra como mensaje de la persona).
+export const INFORME = "[Informe del día] Dame el informe de hoy como un asistente personal de primera: saludo según la hora, el clima y si afecta a la obra, lo importante que tengo hoy (avisos y trabajos), los seguimientos que tengas para preguntarme y una recomendación concreta. Máximo 5 frases, sin listas.";
+
 // onParcial(texto): la respuesta mientras se escribe (streaming).
 export async function conversar(texto, modelo, { voz = false, imagen = null, onParcial = null } = {}){
   if (!(await tieneClave())){
@@ -180,7 +211,10 @@ export async function conversar(texto, modelo, { voz = false, imagen = null, onP
 async function conIA(texto, modelo, voz, imagen, onParcial){
   if (imagen && !texto) texto = "Mira esta foto y dime qué ves y qué me recomiendas.";
   const primero = !turnos.length;
-  const system = `${REGLAS}${primero ? '\nEs el primer mensaje de este chat: agrega también "titulo" con 2 a 5 palabras que nombren el tema (ej. "Obra Achumani", "Cálculo de losa").' : ""}${voz ? VOZ : ""}\n\n## Lo que sabes de la persona\n${await bloquePerfil()}\n\n## Estado actual\n${contexto()}`;
+  // Contexto inteligente en paralelo y con tope de tiempo: memoria, clima y recuerdos parecidos.
+  const tope = (p, ms, d) => Promise.race([p, new Promise(ok => setTimeout(() => ok(d), ms))]);
+  const [perfilTxt, clima, recuerdos] = await Promise.all([bloquePerfil(), tope(climaTexto(), 3000, ""), tope(buscarRecuerdos(texto, 6, chatId), 3000, [])]);
+  const system = `${reglas()}${primero ? '\nEs el primer mensaje de este chat: agrega también "titulo" con 2 a 5 palabras que nombren el tema (ej. "Obra Achumani", "Cálculo de losa").' : ""}${voz ? VOZ : ""}\n\n## Lo que sabes de la persona\n${perfilTxt}${recuerdos.length ? "\n\n## Recuerdos de conversaciones pasadas que pueden servir\n" + bloqueRecuerdos(recuerdos) : ""}\n\n## Estado actual\n${contexto(clima)}`;
   const messages = [...turnos.slice(-MAX_TURNOS), { role:"user", content:texto }];
   const pedido = { system, messages, modelo, imagen, potente: esDificil(texto, imagen) };
   let ultimo = "";
@@ -191,6 +225,7 @@ async function conIA(texto, modelo, voz, imagen, onParcial){
   const hechos = await aplicar(r);
   turnos.push({role:"user",content:(imagen ? "[envió una foto] " : "") + texto},{role:"assistant",content:JSON.stringify({respuesta, aplicado:hechos})});
   guardarTurnos();
+  if (!/^\[Informe/.test(texto)) recordar(`Persona: ${texto}\nCapataz: ${respuesta}`, chatId);
   const titulo = primero && typeof r?.titulo === "string" ? r.titulo.trim().slice(0, 40) : "";
   return { respuesta, hechos, titulo };
 }
@@ -198,22 +233,24 @@ async function conIA(texto, modelo, voz, imagen, onParcial){
 export function agregarTurno(usuario, respuesta){
   turnos.push({role:"user",content:usuario},{role:"assistant",content:JSON.stringify({respuesta, aplicado:[]})});
   guardarTurnos();
+  recordar(`Persona: ${usuario}\nCapataz: ${respuesta}`, chatId);
 }
 
 /* ---------- Voz en tiempo real (Gemini Live): herramientas en vez de JSON ---------- */
 export async function sistemaViva(){
   const previos = turnos.slice(-16).map(t => (t.role === "user" ? "Persona: " + t.content : "Tú: " + leerRespuesta(t.content))).join("\n");
-  return `${PERSONA}
+  const clima = await Promise.race([climaTexto(), new Promise(ok => setTimeout(() => ok(""), 3000))]);
+  return `${PERSONA_DE()}
 
 Ahora están conversando POR VOZ en tiempo real, como una llamada. Habla como una persona: frases cortas y naturales, con pausas, sin listas ni símbolos; di fechas y horas en palabras. Si te interrumpe, deja lo que estabas diciendo y escúchale. Saluda brevemente al empezar, por su nombre si lo sabes, y si tiene algo vencido o importante hoy, menciónalo.
-HERRAMIENTAS (obligatorio): cuando pida anotar algo, llama a crear_trabajo; cuando pida que le recuerdes o avises algo con hora, llama a crear_recordatorio (si no dijo la hora, pregúntala primero); cuando diga que terminó algo, llama a marcar_hecho con el id exacto de la lista; cuando te cuente un dato útil de sí mismo, su obra o su gente, llama a aprender_dato. También manejas su celular: alarma, temporizador, musica (Spotify), abrir_app, llamar, whatsapp, navegar, abrir_web y linterna; úsalas cuando te lo pida. NUNCA digas que anotaste, agendaste o recordarás algo sin haber llamado antes a la herramienta. Después de usarla, confírmalo en una frase. Para datos actuales (precios, clima, noticias, horarios) busca en Google.
+HERRAMIENTAS (obligatorio): cuando pida anotar algo, llama a crear_trabajo; cuando pida que le recuerdes o avises algo con hora, llama a crear_recordatorio (si no dijo la hora, pregúntala primero); cuando diga que terminó algo, llama a marcar_hecho con el id exacto de la lista; cuando te cuente un dato útil de sí mismo, su obra o su gente, llama a aprender_dato. También manejas su celular: alarma, temporizador, musica (Spotify), abrir_app, llamar, whatsapp, navegar, abrir_web y linterna; úsalas cuando te lo pida. Si te pregunta por algo que hablaron antes y no está aquí, llama a buscar_recuerdos. Cuando algo quede en el aire, llama a programar_seguimiento para preguntarle después; cuando ya preguntaste un seguimiento vencido, llama a seguimiento_hecho. NUNCA digas que anotaste, agendaste o recordarás algo sin haber llamado antes a la herramienta. Después de usarla, confírmalo en una frase. Para datos actuales (precios, clima, noticias, horarios) busca en Google.
 ${APRENDER.replace("guárdalo en nuevos_aprendizajes", "guárdalo con aprender_dato")}
 
 ## Lo que sabes de la persona
 ${await bloquePerfil()}
 
 ## Estado actual
-${contexto()}
+${contexto(clima)}
 ${previos ? "\n## Lo último que hablaron por escrito\n" + previos : ""}`;
 }
 
@@ -241,11 +278,24 @@ export const HERRAMIENTAS = [
   { name:"abrir_web", description:"Abre una página web.", parameters:{ type:"OBJECT", properties:{ url:{ type:"STRING" } }, required:["url"] } },
   { name:"linterna", description:"Enciende o apaga la linterna del celular.", parameters:{ type:"OBJECT", properties:{ encender:{ type:"BOOLEAN" } }, required:["encender"] } }
 ];
+HERRAMIENTAS.push(
+  { name:"buscar_recuerdos", description:"Busca en las conversaciones pasadas (de cualquier chat y fecha) lo que se habló sobre un tema.", parameters:{ type:"OBJECT", properties:{ consulta:{ type:"STRING" } }, required:["consulta"] } },
+  { name:"programar_seguimiento", description:"Programa una pregunta para hacerle más adelante sobre algo que quedó pendiente.", parameters:{ type:"OBJECT", properties:{
+    pregunta:{ type:"STRING" }, cuando:{ type:"STRING", description:"AAAA-MM-DDTHH:MM en hora local" } }, required:["pregunta","cuando"] } },
+  { name:"seguimiento_hecho", description:"Marca un seguimiento como ya preguntado.", parameters:{ type:"OBJECT", properties:{ id:{ type:"STRING" } }, required:["id"] } }
+);
 const TIPOS_ACCION = ["alarma","temporizador","musica","abrir_app","llamar","whatsapp","navegar","abrir_web","linterna"];
 
 // Ejecuta una herramienta pedida por la IA. Devuelve {resultado (para la IA), hechos (para mostrar)}.
 export async function ejecutarHerramienta(nombre, a = {}){
+  if (nombre === "seguimiento_hecho"){ await aplicar({ seguimientos_hechos:[a.id] }); return { resultado:"Listo.", hechos:[] }; }
+  if (nombre === "buscar_recuerdos"){
+    const r = await buscarRecuerdos(a.consulta || "", 8);
+    return { resultado: r.length ? bloqueRecuerdos(r) : "No encontré nada sobre eso en conversaciones pasadas.", hechos:[] };
+  }
   const r = {
+    programar_seguimiento: { seguimientos:[{ pregunta:a.pregunta, cuando:a.cuando }] },
+    seguimiento_hecho: { seguimientos_hechos:[a.id] },
     crear_trabajo: { nuevas_tareas:[{ texto:a.texto, proyecto:a.proyecto }] },
     crear_recordatorio: { nuevos_recordatorios:[{ texto:a.texto, cuando:a.cuando }] },
     marcar_hecho: { completar:[a.id] },

@@ -2,7 +2,8 @@
 import { $, el, ls, cuandoTexto, localISO, nuevoId } from "./core/util.js";
 import { cargar, alCambiar, recargar, tareas, avisos, agregarTarea, agregarAviso, actualizar, borrar, alternarHecho, posponer } from "./core/datos.js";
 import { cargarPerfil, listarPerfil, olvidar } from "./core/memoria.js";
-import { conversar, borrarHistorial, agregarTurno, usarChat, INFORME } from "./core/ia.js";
+import { conversar, borrarHistorial, agregarTurno, usarChat, INFORME, ORDENES, personalidad, seguimientosVencidos } from "./core/ia.js";
+import { climaTexto } from "./core/entorno.js";
 import { iniciarVozViva } from "./core/vozViva.js";
 import { revisarAlarmas } from "./core/alarmas.js";
 import { plataforma, nativo } from "./adapters/plataforma.js";
@@ -17,12 +18,14 @@ function setSync(on, texto){ const s=$("#sync"); s.classList.toggle("on", on); s
 
 /* ---------- Pestañas ---------- */
 document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => abrir(b.dataset.p)));
+const PESTANAS = ["inicio","hablar","trabajos","recordatorios"];
 function abrir(p){
   document.querySelectorAll("nav button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.p===p)));
-  ["hablar","trabajos","recordatorios"].forEach(x => $("#p-"+x).hidden = x!==p);
-  ls.set("capataz-tab", p);
+  PESTANAS.forEach(x => $("#p-"+x).hidden = x!==p);
+  if(p==="inicio") renderInicio();
+  if(p==="hablar") requestAnimationFrame(() => document.querySelector("#chat")?.lastElementChild?.scrollIntoView({block:"end"}));
 }
-const tabGuardada = ls.get("capataz-tab","hablar"); if(["hablar","trabajos","recordatorios"].includes(tabGuardada)) abrir(tabGuardada);
+// Siempre abre en Inicio, como un asistente que te recibe.
 
 /* ---------- Render ---------- */
 function botonBorrar(id){
@@ -50,7 +53,7 @@ function filaAviso(it){
 }
 function render(){
   const ts = tareas(), pend = ts.filter(t=>!t.hecho).sort((a,b)=>b.creado-a.creado), hechas = ts.filter(t=>t.hecho).sort((a,b)=>(b.terminado||0)-(a.terminado||0));
-  $("#n-trabajos").textContent = pend.length;
+  $("#n-trabajos").textContent = pend.length || "";
   const lt = $("#lista-trabajos"); lt.replaceChildren();
   if(!ts.length) lt.append(el("div",{class:"vacio"},"Aún no hay trabajos. Escríbelos arriba o díselos a Capataz en la pestaña Hablar."));
   else {
@@ -67,13 +70,14 @@ function render(){
   const venc = av.filter(a=>!a.hecho && a.cuando<=ahora).sort((a,b)=>a.cuando-b.cuando);
   const prox = av.filter(a=>!a.hecho && a.cuando>ahora).sort((a,b)=>a.cuando-b.cuando);
   const listos = av.filter(a=>a.hecho).sort((a,b)=>b.cuando-a.cuando);
-  $("#n-recordatorios").textContent = venc.length+prox.length;
+  $("#n-recordatorios").textContent = venc.length || "";
   const lr=$("#lista-recordatorios"); lr.replaceChildren();
   if(!av.length) lr.append(el("div",{class:"vacio"},"No tienes avisos programados. Ejemplo: “Recuérdame el viernes a las 8 pagar a los trabajadores”."));
   if(venc.length){ lr.append(el("h3",{},"Vencidos")); lr.append(el("ul",{class:"lista"}, venc.map(filaAviso))); }
   if(prox.length){ lr.append(el("h3",{},"Próximos")); lr.append(el("ul",{class:"lista"}, prox.map(filaAviso))); }
   if(listos.length) lr.append(el("details",{}, el("summary",{},"Hechos ("+listos.length+")"), el("ul",{class:"lista"}, listos.slice(0,50).map(filaAviso))));
   revisarAlarmas(hablar);
+  if(!$("#p-inicio").hidden) renderInicio();
 }
 alCambiar(render);
 setInterval(render, 20000);
@@ -225,7 +229,8 @@ const ERRORES = {
 
 // Devuelve la respuesta (o null si falló).
 // oculto: pedido interno (como el informe de la mañana) que no se muestra como mensaje de la persona.
-async function enviar(texto, { voz = false, oculto = false } = {}){
+// etiqueta: lo que se muestra como mensaje de la persona cuando se envía una orden larga (botones de Inicio).
+async function enviar(texto, { voz = false, oculto = false, etiqueta = "" } = {}){
   texto = String(texto||"").trim();
   const imagen = voz ? null : imagenAdjunta;
   if((!texto && !imagen) || ocupado) return null;
@@ -233,8 +238,8 @@ async function enviar(texto, { voz = false, oculto = false } = {}){
   $("#intro")?.remove();
   $("#in-chat").value=""; notaChat.textContent=""; notaChat.classList.remove("error");
   if(!oculto){
-    const b = burbuja("yo", texto); if(imagen) b.prepend(el("img",{src:imagen.mini, alt:"Foto"}));
-    guardarChat({ de:"yo", texto, ...(imagen ? { mini:imagen.mini } : {}) });
+    const b = burbuja("yo", etiqueta || texto); if(imagen) b.prepend(el("img",{src:imagen.mini, alt:"Foto"}));
+    guardarChat({ de:"yo", texto:etiqueta || texto, ...(imagen ? { mini:imagen.mini } : {}) });
   }
   const pensando = burbuja("ia pensando","Pensando…");
   ocupado=true;
@@ -352,14 +357,63 @@ $("#btn-guardar-ajustes").addEventListener("click", async () => {
   dlg.close();
 });
 
+/* ---------- Inicio: saludo, clima, una sola orden y tu día ---------- */
+function nombrePersona(){
+  for(const f of listarPerfil()){
+    if(f.categoria !== "persona" && !/nombre/.test(f.clave)) continue;
+    const m = /(?:llama|nombre(?: es)?|soy)\s+([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/.exec(f.valor) || (/nombre/.test(f.clave) && /^([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)/.exec(f.valor));
+    if(m) return m[1];
+  }
+  return "";
+}
+async function renderInicio(){
+  const ahora = new Date(), h = ahora.getHours();
+  const fecha = new Intl.DateTimeFormat("es",{weekday:"long",day:"numeric",month:"long"}).format(ahora);
+  $("#ini-fecha").textContent = fecha[0].toUpperCase() + fecha.slice(1);
+  const parte = h < 5 ? "Buenas noches" : h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches";
+  const nombre = nombrePersona();
+  $("#ini-saludo").textContent = personalidad() === "jarvis" ? `${parte}, ${nombre || "señor"}.` : `${parte}${nombre ? ", " + nombre : ""}`;
+  $("#ini-pista").textContent = personalidad() === "jarvis" ? "A su disposición. Toque y dígame." : "Toca y háblame. Yo me encargo.";
+  const av = avisos(), ts = tareas(), t = Date.now();
+  const venc = av.filter(a=>!a.hecho && a.cuando<=t), prox = av.filter(a=>!a.hecho && a.cuando>t).sort((a,b)=>a.cuando-b.cuando);
+  const finDia = new Date(ahora); finDia.setHours(23,59,59,999);
+  const hoyAv = prox.filter(a=>a.cuando<=finDia.getTime()), pend = ts.filter(x=>!x.hecho), seg = seguimientosVencidos();
+  $("#ini-cifras").textContent = [hoyAv.length && `${hoyAv.length} hoy`, venc.length && `${venc.length} vencido${venc.length>1?"s":""}`, pend.length && `${pend.length} trabajo${pend.length>1?"s":""}`].filter(Boolean).join(" · ");
+  const inf = ls.get("capataz-informe-texto", null);
+  $("#ini-resumen").textContent = inf?.dia === ahora.toDateString() ? inf.texto
+    : !av.length && !ts.length ? "Todavía no me has encargado nada. Dime en una frase qué tienes en mente y yo lo organizo: avisos, trabajos, compras, mensajes."
+    : prox[0] ? `Lo próximo: ${prox[0].texto}, ${cuandoTexto(prox[0].cuando)}.${seg.length ? ` Y tengo ${seg.length === 1 ? "algo" : seg.length + " cosas"} que preguntarte.` : ""}`
+    : venc.length ? "Tienes avisos vencidos: revísalos o pídeme que los reprograme." : "Nada urgente por ahora. Buen momento para adelantar trabajos pendientes.";
+  $("#ini-proximos").replaceChildren(...[...venc.slice(0,2), ...prox.slice(0,3)].map(filaAviso), ...pend.slice(0, Math.max(0, 5 - venc.length - prox.length)).map(filaTarea));
+  const c = await climaTexto().catch(() => "");
+  const m = /ahora (-?\d+)°C, ([^,]+)/.exec(c);
+  $("#ini-clima").hidden = !m; if(m) $("#ini-clima").textContent = `${/lluvia|llovizna|chubasco|tormenta/.test(m[2]) ? "🌧️" : /nublado|niebla/.test(m[2]) ? "☁️" : /nev|granizo/.test(m[2]) ? "🌨️" : "☀️"} ${m[1]}° · ${m[2]}`;
+}
+function ordenDesdeInicio(texto, opciones = {}){
+  texto = String(texto||"").trim(); if(!texto) return;
+  abrir("hablar"); $("#ini-orden").value = "";
+  enviar(texto, opciones);
+}
+$("#ini-form").addEventListener("submit", e => { e.preventDefault(); ordenDesdeInicio($("#ini-orden").value); });
+$("#ini-orbe").addEventListener("click", () => abrirVoz());
+$("#ini-acciones").addEventListener("click", e => {
+  const a = e.target.closest("button")?.dataset.accion; if(!a) return;
+  if(a === "dia") return ordenDesdeInicio(ORDENES.dia, { etiqueta:"Organiza mi día" });
+  if(a === "semana") return ordenDesdeInicio(ORDENES.semana, { etiqueta:"Planifica mi semana" });
+  if(a === "informe") return ordenDesdeInicio(INFORME, { etiqueta:"¿Qué tengo hoy?" });
+  if(a === "foto"){ abrir("hablar"); return $("#in-foto").click(); }
+  const prefijo = { calcular:"Calcula el material para ", mensaje:"Redacta un mensaje para " }[a];
+  abrir("hablar"); const inp = $("#in-chat"); inp.value = prefijo; inp.focus(); inp.setSelectionRange(prefijo.length, prefijo.length);
+});
+
 /* ---------- Informe de la mañana: al abrir la app por primera vez en el día (de 5:00 a 13:00) ---------- */
 async function informeDeLaManana(){
   const hoy = new Date().toDateString(), h = new Date().getHours();
   if(!ls.get("capataz-informe-activo", true) || ls.get("capataz-informe-dia", "") === hoy || h < 5 || h >= 13) return;
   if(!(await tieneClave())) return;
   ls.set("capataz-informe-dia", hoy);
-  abrir("hablar");
   const r = await enviar(INFORME, { oculto:true });
+  if(r?.respuesta) ls.set("capataz-informe-texto", { dia:hoy, texto:r.respuesta });
   if(r?.respuesta && !chkVoz.checked) decir(r.respuesta);  // el informe se dice en voz alta aunque la lectura esté apagada
 }
 
@@ -378,6 +432,7 @@ alAccionar(async (accion, id) => {
     setSync(true, plataforma==="web" ? "Guardado en este navegador" : "Guardado en este dispositivo");
   }catch{ setSync(false, "No se pudo abrir la base de datos"); }
   await pedirPermiso();
+  abrir("inicio");
   informeDeLaManana();
   // Widget / atajo "Hablar" (Android) y Ctrl+Alt+Espacio (Windows): abre directo la conversación por voz.
   alPedirHablar(() => { if(!modoVoz.activo) abrirVoz(); });

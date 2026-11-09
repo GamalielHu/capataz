@@ -190,6 +190,12 @@ const VOZ = "\n\nAhora conversan por VOZ: responde como se habla, en frases cort
 // Lo que se pide para el informe automático de la mañana (no se muestra como mensaje de la persona).
 export const INFORME = "[Informe del día] Dame el informe de hoy como un asistente personal de primera: saludo según la hora, el clima y si afecta a la obra, lo importante que tengo hoy (avisos y trabajos), los seguimientos que tengas para preguntarme y una recomendación concreta. Máximo 5 frases, sin listas.";
 
+// Órdenes de un toque desde Inicio: el asistente resuelve todo sin hacer preguntas.
+export const ORDENES = {
+  dia: "[Organiza mi día] Organiza mi día de forma realista, desde ahora hasta la noche (si ya pasaron las 19:00, organiza el día de mañana y dilo): usa mis trabajos pendientes, avisos, seguimientos, el clima y lo que sabes de mi rutina. Prioriza lo urgente y lo que depende del clima, agrupa lo que se puede hacer junto y deja tiempo para comer y moverme. Crea en nuevos_recordatorios un aviso con fecha y hora futura para cada bloque importante (máximo 6) y dime el plan en líneas cortas con su hora. No me hagas preguntas: asume lo razonable y dime en una frase qué asumiste.",
+  semana: "[Planifica mi semana] Planifica mi semana desde hoy hasta el domingo: reparte mis trabajos pendientes por día según urgencia, clima pronosticado y lo que sabes de mis obras y rutina; marca qué conviene comprar o coordinar antes. Crea recordatorios para los hitos clave (máximo 7) y dímelo por día en líneas cortas. No me hagas preguntas: asume lo razonable y dime en una frase qué asumiste."
+};
+
 // onParcial(texto): la respuesta mientras se escribe (streaming).
 export async function conversar(texto, modelo, { voz = false, imagen = null, onParcial = null } = {}){
   if (!(await tieneClave())){
@@ -225,7 +231,7 @@ async function conIA(texto, modelo, voz, imagen, onParcial){
   const hechos = await aplicar(r);
   turnos.push({role:"user",content:(imagen ? "[envió una foto] " : "") + texto},{role:"assistant",content:JSON.stringify({respuesta, aplicado:hechos})});
   guardarTurnos();
-  if (!/^\[Informe/.test(texto)) recordar(`Persona: ${texto}\nCapataz: ${respuesta}`, chatId);
+  if (!/^\[(Informe|Organiza|Planifica)/.test(texto)) recordar(`Persona: ${texto}\nCapataz: ${respuesta}`, chatId);
   const titulo = primero && typeof r?.titulo === "string" ? r.titulo.trim().slice(0, 40) : "";
   return { respuesta, hechos, titulo };
 }

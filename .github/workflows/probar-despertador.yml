@@ -19,4 +19,4 @@ jobs:
           curl -sSL -o modelo.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
           unzip -q modelo.zip && mv vosk-model-small-es-0.42 modelo && du -sh modelo && find modelo -type f | head -40
       - name: Prueba
-        run: python pruebas/despertador/probar.py modelo pruebas/despertador/wav capataz atlas cóndor titán 2>&1 | grep -v "^LOG "
+        run: python pruebas/despertador/probar.py modelo pruebas/despertador/wav 2>&1 | grep -v "^LOG "

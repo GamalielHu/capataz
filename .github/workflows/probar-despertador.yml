@@ -1,0 +1,22 @@
+name: Probar despertador
+
+on:
+  push:
+    branches: ["claude/**"]
+    paths: ["pruebas/despertador/**", ".github/workflows/probar-despertador.yml"]
+  workflow_dispatch:
+
+jobs:
+  probar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install vosk
+      - name: Modelo
+        run: |
+          curl -sSL -o modelo.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+          unzip -q modelo.zip && mv vosk-model-small-es-0.42 modelo && du -sh modelo && find modelo -type f | head -40
+      - name: Prueba
+        run: python pruebas/despertador/probar.py modelo pruebas/despertador/wav capataz atlas cóndor titán 2>&1 | grep -v "^LOG "

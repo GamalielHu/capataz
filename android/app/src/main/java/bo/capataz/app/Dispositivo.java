@@ -38,7 +38,7 @@ public class Dispositivo extends Plugin {
         Intent i = new Intent(AlarmClock.ACTION_SET_ALARM)
             .putExtra(AlarmClock.EXTRA_HOUR, call.getInt("hora", 7))
             .putExtra(AlarmClock.EXTRA_MINUTES, call.getInt("minuto", 0))
-            .putExtra(AlarmClock.EXTRA_MESSAGE, call.getString("mensaje", "Capataz"))
+            .putExtra(AlarmClock.EXTRA_MESSAGE, call.getString("mensaje", "Atlas"))
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
         responder(call, lanzar(i), "reloj");
     }
@@ -47,7 +47,7 @@ public class Dispositivo extends Plugin {
     public void temporizador(PluginCall call) {
         Intent i = new Intent(AlarmClock.ACTION_SET_TIMER)
             .putExtra(AlarmClock.EXTRA_LENGTH, call.getInt("segundos", 60))
-            .putExtra(AlarmClock.EXTRA_MESSAGE, call.getString("mensaje", "Capataz"))
+            .putExtra(AlarmClock.EXTRA_MESSAGE, call.getString("mensaje", "Atlas"))
             .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
         responder(call, lanzar(i), "reloj");
     }

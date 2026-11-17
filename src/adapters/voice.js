@@ -13,7 +13,7 @@ let recWeb = null, cancelarNativo = null;
 
 const puedeGrabar = !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 export const consejoDictado = plataforma === "electron"
-  ? "Para hablar con Capataz en la PC pon tu clave de Gemini en Ajustes, o pulsa Win+H para dictar con Windows."
+  ? "Para hablar con Atlas en la PC pon tu clave de Gemini en Ajustes, o pulsa Win+H para dictar con Windows."
   : "Toca el micrófono de tu teclado para dictar.";
 
 export const puedeDictar = () => plataforma === "android" || !!SRWeb || puedeGrabar;

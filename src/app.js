@@ -1,8 +1,8 @@
-// Interfaz de Capataz (misma UI que la versión artifact) sobre el core y los adaptadores nativos.
+// Interfaz de Capataz (el asistente se llama Atlas) sobre el core y los adaptadores nativos.
 import { $, el, ls, cuandoTexto, localISO, nuevoId } from "./core/util.js";
 import { cargar, alCambiar, recargar, tareas, avisos, agregarTarea, agregarAviso, actualizar, borrar, alternarHecho, posponer } from "./core/datos.js";
 import { cargarPerfil, listarPerfil, olvidar } from "./core/memoria.js";
-import { conversar, borrarHistorial, agregarTurno, usarChat, INFORME, ORDENES, personalidad, seguimientosVencidos } from "./core/ia.js";
+import { conversar, borrarHistorial, agregarTurno, usarChat, INFORME, ORDENES, seguimientosVencidos } from "./core/ia.js";
 import { climaTexto } from "./core/entorno.js";
 import { iniciarVozViva } from "./core/vozViva.js";
 import { revisarAlarmas } from "./core/alarmas.js";
@@ -12,6 +12,7 @@ import { dictar, detener, puedeDictar, consejoDictado, hablar as decir, callar, 
 import { iniciarModalClave } from "./core/settings_modal.js";
 import { tieneClave } from "./adapters/llm.js";
 import { alPedirHablar } from "./adapters/dispositivo.js";
+import { hayEscucha, estadoEscucha, activarEscucha, desactivarEscucha, pedirSuperponer, pedirBateria, dormirPantalla, reanudarEscuchaSiToca, retenerMicrofono, soltarMicrofono } from "./adapters/escucha.js";
 
 const ICON_CHECK = '<svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>';
 function setSync(on, texto){ const s=$("#sync"); s.classList.toggle("on", on); s.querySelector("span").textContent=texto; }
@@ -55,7 +56,7 @@ function render(){
   const ts = tareas(), pend = ts.filter(t=>!t.hecho).sort((a,b)=>b.creado-a.creado), hechas = ts.filter(t=>t.hecho).sort((a,b)=>(b.terminado||0)-(a.terminado||0));
   $("#n-trabajos").textContent = pend.length || "";
   const lt = $("#lista-trabajos"); lt.replaceChildren();
-  if(!ts.length) lt.append(el("div",{class:"vacio"},"Aún no hay trabajos. Escríbelos arriba o díselos a Capataz en la pestaña Hablar."));
+  if(!ts.length) lt.append(el("div",{class:"vacio"},"Aún no hay trabajos. Escríbelos arriba o díselos a Atlas en la pestaña Chat."));
   else {
     const grupos = {};
     pend.forEach(t => (grupos[t.proyecto||""] ??= []).push(t));
@@ -101,13 +102,14 @@ btnMic.addEventListener("click", async () => {
   if(!puedeDictar()){ notaChat.textContent = consejoDictado; $("#in-chat").focus(); return; }
   if(grabando){ detener(); return; }
   grabando=true; btnMic.classList.add("grabando"); notaChat.textContent="Escuchando…";
+  retenerMicrofono();
   try{
     const final = await dictar(t => $("#in-chat").value = t);
     notaChat.textContent="";
     if(final) enviar(final);
   }catch(e){
     notaChat.textContent = (e?.code==="not-allowed"||e?.code==="service-not-allowed"||e?.code==="no-disponible") ? consejoDictado : "No te escuché bien. Intenta de nuevo.";
-  }finally{ grabando=false; btnMic.classList.remove("grabando"); }
+  }finally{ grabando=false; btnMic.classList.remove("grabando"); soltarMicrofono(); }
 });
 
 /* ---------- Fotos ---------- */
@@ -190,7 +192,7 @@ function nuevoChat(){
   mostrarChat(c); abrir("hablar"); $("#in-chat").focus();
 }
 function borrarChat(c){
-  if(!confirm(`¿Borrar el chat “${c.titulo}”? Lo que Capataz aprendió de ti, tus trabajos y avisos se quedan.`)) return;
+  if(!confirm(`¿Borrar el chat “${c.titulo}”? Lo que Atlas aprendió de ti, tus trabajos y avisos se quedan.`)) return;
   ls.del("capataz-chat:" + c.id); borrarHistorial(c.id);
   chats = chats.filter(x => x !== c);
   if(!chats.length) chats.push({ id:nuevoId("c"), titulo:"Chat nuevo", nuevo:true, actualizado:Date.now() });
@@ -280,7 +282,7 @@ async function cicloVoz(){
     try{ dicho = await dictar(t => { vozTexto.textContent = t; }); }
     catch(e){ estadoVoz("pausa", (e?.code==="not-allowed") ? "Necesito permiso del micrófono." : consejoDictado); return; }
     if(!modoVoz.activo) return;
-    if(!dicho){ if(++silencios >= 2){ estadoVoz("pausa", ""); return; } continue; }
+    if(!dicho){ if(++silencios >= 2){ if(modoVoz.manosLibres) cerrarVoz(); else estadoVoz("pausa", ""); return; } continue; }
     silencios = 0;
     estadoVoz("pensando", dicho);
     const r = await enviar(dicho, { voz:true });
@@ -292,15 +294,31 @@ async function cicloVoz(){
   }
 }
 // Primero intenta la voz en tiempo real (Gemini Live); si no hay clave de Gemini o falla, usa escuchar/responder por turnos.
-let viva = null;
-async function abrirVoz(){
-  modoVoz.activo = true; capa.hidden = false; abrir("hablar");
+// manosLibres: la abrió «Oye Atlas» o el widget; saluda corto y se cierra sola tras un rato de silencio.
+let viva = null, relojSilencio = null, esperas = 0;
+function vigilarSilencio(reiniciar = true){
+  clearTimeout(relojSilencio);
+  if(!modoVoz.activo || !modoVoz.manosLibres) return;
+  if(reiniciar) esperas = 0;
+  relojSilencio = setTimeout(() => {
+    if(!modoVoz.activo) return;
+    const ocupado = viva?.hablandoAhora() || modoVoz.estado === "pensando" || modoVoz.estado === "hablando";
+    if(ocupado && ++esperas < 5) return vigilarSilencio(false);
+    cerrarVoz();
+  }, 25000);
+}
+async function abrirVoz({ manosLibres = false } = {}){
+  modoVoz.activo = true; modoVoz.manosLibres = manosLibres; capa.hidden = false; abrir("hablar");
+  if(!modoVoz.retenido){ modoVoz.retenido = true; retenerMicrofono(); }
   estadoVoz("pensando", "Conectando…");
+  vigilarSilencio();
   try{
-    viva = await iniciarVozViva({ voz: ls.get("capataz-voz-nombre", "Charon"), interrumpir: ls.get("capataz-interrumpir", false), eventos:{
-      estado: e => { if(modoVoz.activo) estadoVoz(e); },
-      oyendo: t => { vozTexto.textContent = t; },
-      diciendo: t => { vozTexto.textContent = t; },
+    viva = await iniciarVozViva({ voz: ls.get("capataz-voz-nombre", "Charon"), interrumpir: ls.get("capataz-interrumpir", false),
+      saludo: manosLibres ? "(Te acabo de llamar diciendo «Oye Atlas». Contesta solo con una o dos palabras, como «Dime» o «Aquí estoy», y espera lo que te voy a pedir.)" : "",
+      eventos:{
+      estado: e => { if(modoVoz.activo){ estadoVoz(e); vigilarSilencio(); } },
+      oyendo: t => { vozTexto.textContent = t; vigilarSilencio(); },
+      diciendo: t => { vozTexto.textContent = t; vigilarSilencio(); },
       turno: ({ usuario, respuesta, hechos }) => {
         $("#intro")?.remove();
         if(usuario){ burbuja("yo", usuario); guardarChat({ de:"yo", texto:usuario }); }
@@ -311,6 +329,7 @@ async function abrirVoz(){
       error: code => { viva = null; if(!modoVoz.activo) return;
         estadoVoz("pausa", code === "clave_invalida" ? "La clave de Gemini no sirvió para la voz en vivo." : "Se cortó la llamada. Toca el círculo para volver a conectar."); modoVoz.reconectar = true; }
     }});
+    if(!modoVoz.activo){ viva?.cerrar(); viva = null; return; }   // la cerraron mientras conectaba
     modoVoz.vivo = true;
   }catch(e){
     viva = null; modoVoz.vivo = false;
@@ -319,11 +338,17 @@ async function abrirVoz(){
     cicloVoz();
   }
 }
-function cerrarVoz(){ modoVoz.activo = false; modoVoz.vivo = false; viva?.cerrar(); viva = null; detener(); callar(); capa.hidden = true; }
-$("#btn-voz").addEventListener("click", abrirVoz);
+function cerrarVoz(){
+  const libres = modoVoz.manosLibres;
+  modoVoz.activo = false; modoVoz.vivo = false; modoVoz.manosLibres = false; modoVoz.reconectar = false; clearTimeout(relojSilencio);
+  viva?.cerrar(); viva = null; detener(); callar(); capa.hidden = true;
+  if(modoVoz.retenido){ modoVoz.retenido = false; soltarMicrofono(); }
+  if(libres) dormirPantalla();   // la pantalla puede volver a apagarse y bloquearse
+}
+$("#btn-voz").addEventListener("click", () => abrirVoz());
 $("#voz-cerrar").addEventListener("click", cerrarVoz);
 orbe.addEventListener("click", () => {
-  if(modoVoz.reconectar){ modoVoz.reconectar = false; abrirVoz(); return; }
+  if(modoVoz.reconectar){ modoVoz.reconectar = false; abrirVoz({ manosLibres: modoVoz.manosLibres }); return; }
   if(viva){ if(viva.hablandoAhora()) viva.interrumpir(); return; }
   if(modoVoz.estado === "hablando"){ callar(); }               // interrumpe y vuelve a escuchar
   else if(modoVoz.estado === "escuchando"){ detener(); }       // ya terminé de hablar
@@ -339,9 +364,10 @@ function renderPerfil(){
 }
 async function abrirAjustes(){
   $("#in-modelo").value = ls.get("capataz-modelo", ""); modalClave.resumen();
-  $("#sel-personalidad").value = ls.get("capataz-personalidad", "companero"); $("#chk-informe").checked = ls.get("capataz-informe-activo", true);
+  $("#chk-informe").checked = ls.get("capataz-informe-activo", true);
   $("#sel-voz").value = ls.get("capataz-voz-nombre", "Charon"); $("#chk-interrumpir").checked = ls.get("capataz-interrumpir", false);
   if(plataforma==="electron"){ $("#fila-autoinicio").hidden=false; $("#chk-autoinicio").checked = await nativo.autoinicio(); }
+  pintarEscucha();
   renderPerfil();
   dlg.showModal();
 }
@@ -350,12 +376,46 @@ const modalClave = iniciarModalClave({ alCambiar: reiniciarVozNatural });
 $("#btn-guardar-ajustes").addEventListener("click", async () => {
   ls.set("capataz-modelo", $("#in-modelo").value.trim());
   ls.set("capataz-voz-nombre", $("#sel-voz").value);
-  ls.set("capataz-personalidad", $("#sel-personalidad").value);
   ls.set("capataz-informe-activo", $("#chk-informe").checked);
   ls.set("capataz-interrumpir", $("#chk-interrumpir").checked);
   if(plataforma==="electron") await nativo.autoinicio($("#chk-autoinicio").checked);
   dlg.close();
 });
+
+/* ---------- «Oye Atlas»: escucha permanente (solo Android) ---------- */
+let oyeAtlas = false;
+const TEXTO_ESCUCHA = {
+  escuchando:"Encendido. Di «Oye Atlas» y te respondo, también con la pantalla apagada.",
+  cargando:"Preparando el oído… unos segundos.",
+  pausa:"En pausa mientras usamos el micrófono; vuelve solo al terminar.",
+  sin_modelo:"No pude cargar el oído sin internet. Reinstala la app.",
+  sin_microfono:"El micrófono está ocupado por otra app o sin permiso.",
+  sin_permiso:"Android no me dejó arrancar. Apaga y vuelve a encender este interruptor.",
+  detenido:"Apagado."
+};
+async function pintarEscucha(e){
+  if(!hayEscucha) return;
+  e = e || await estadoEscucha();
+  oyeAtlas = !!e.activo && e.corriendo;
+  $("#fila-oye").hidden = false; $("#chk-oye").checked = !!e.activo;
+  $("#oye-estado").textContent = e.falta === "microfono" ? "Necesito el permiso del micrófono para escucharte." : !e.activo ? "Apagado. Enciéndelo para llamarme sin tocar el celular." : !e.corriendo && e.estado !== "sin_permiso" ? "Encendiendo…" : (TEXTO_ESCUCHA[e.estado] || "");
+  $("#oye-permisos").hidden = !e.activo;
+  $("#btn-oye-superponer").hidden = !!e.superponer; $("#btn-oye-bateria").hidden = !!e.bateria;
+  $("#oye-listo").hidden = !(e.superponer && e.bateria);
+  if(!$("#p-inicio").hidden) $("#ini-pista").textContent = pistaInicio();
+}
+const pistaInicio = () => oyeAtlas ? "Di «Oye Atlas» o toca. Yo me encargo." : "Toca y háblame. Yo me encargo.";
+if(hayEscucha){
+  $("#chk-oye").addEventListener("change", async ev => {
+    $("#oye-estado").textContent = "Un momento…";
+    await pintarEscucha(ev.target.checked ? await activarEscucha() : await desactivarEscucha());
+    setTimeout(pintarEscucha, 2500); setTimeout(pintarEscucha, 7000);   // el oído tarda unos segundos en cargar
+  });
+  $("#btn-oye-superponer").addEventListener("click", () => pedirSuperponer());
+  $("#btn-oye-bateria").addEventListener("click", () => pedirBateria());
+  // Al volver de las pantallas de permisos de Android, refresca el estado.
+  document.addEventListener("visibilitychange", () => { if(!document.hidden && dlg.open) pintarEscucha(); });
+}
 
 /* ---------- Inicio: saludo, clima, una sola orden y tu día ---------- */
 function nombrePersona(){
@@ -372,8 +432,8 @@ async function renderInicio(){
   $("#ini-fecha").textContent = fecha[0].toUpperCase() + fecha.slice(1);
   const parte = h < 5 ? "Buenas noches" : h < 12 ? "Buenos días" : h < 19 ? "Buenas tardes" : "Buenas noches";
   const nombre = nombrePersona();
-  $("#ini-saludo").textContent = personalidad() === "jarvis" ? `${parte}, ${nombre || "señor"}.` : `${parte}${nombre ? ", " + nombre : ""}`;
-  $("#ini-pista").textContent = personalidad() === "jarvis" ? "A su disposición. Toque y dígame." : "Toca y háblame. Yo me encargo.";
+  $("#ini-saludo").textContent = `${parte}${nombre ? ", " + nombre : ""}`;
+  $("#ini-pista").textContent = pistaInicio();
   const av = avisos(), ts = tareas(), t = Date.now();
   const venc = av.filter(a=>!a.hecho && a.cuando<=t), prox = av.filter(a=>!a.hecho && a.cuando>t).sort((a,b)=>a.cuando-b.cuando);
   const finDia = new Date(ahora); finDia.setHours(23,59,59,999);
@@ -434,6 +494,8 @@ alAccionar(async (accion, id) => {
   await pedirPermiso();
   abrir("inicio");
   informeDeLaManana();
-  // Widget / atajo "Hablar" (Android) y Ctrl+Alt+Espacio (Windows): abre directo la conversación por voz.
-  alPedirHablar(() => { if(!modoVoz.activo) abrirVoz(); });
+  // «Oye Atlas», el widget o el atajo "Hablar" (Android) y Ctrl+Alt+Espacio (Windows): abren directo la conversación por voz.
+  alPedirHablar(() => { if(!modoVoz.activo) abrirVoz({ manosLibres:true }); });
+  // Si «Oye Atlas» estaba encendido y el sistema lo cerró, vuelve a arrancar.
+  reanudarEscuchaSiToca().then(() => pintarEscucha()).catch(() => {});
 })();

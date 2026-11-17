@@ -12,3 +12,9 @@
 .clave-estado.error{color:var(--danger);font-weight:600}
 .clave-acciones{flex-wrap:wrap}
 .clave-importar{display:block;text-align:center;cursor:pointer}
+/* «Oye Atlas» en Ajustes */
+.oye{display:flex;flex-direction:column;gap:8px;padding:12px;border:1.5px solid var(--accent);border-radius:var(--r);background:var(--accent-soft)}
+.oye .nota{margin:0}
+.oye #oye-estado{font-weight:600;color:var(--ink)}
+.oye #oye-permisos{display:flex;flex-direction:column;gap:8px}
+.oye [hidden]{display:none}

@@ -29,7 +29,7 @@
         <h2 class="ini-saludo" id="ini-saludo">Hola</h2>
         <p class="ini-clima" id="ini-clima" hidden></p>
       </div>
-      <button type="button" class="ini-orbe" id="ini-orbe" aria-label="Hablar con Capataz"><i></i><i></i><i></i><span></span></button>
+      <button type="button" class="ini-orbe" id="ini-orbe" aria-label="Hablar con Atlas"><i></i><i></i><i></i><span></span></button>
       <p class="ini-pista" id="ini-pista">Toca y háblame. Yo me encargo.</p>
       <form class="ini-orden" id="ini-form">
         <input id="ini-orden" autocomplete="off" placeholder="Una sola orden y lo resuelvo…" aria-label="Qué necesitas">
@@ -58,7 +58,7 @@
       <div class="chat" id="chat">
         <div class="intro" id="intro">
           <h2>¿Qué hay que hacer hoy?</h2>
-          <p>Háblame como a un compañero. Anoto trabajos, te pongo avisos, miro tus fotos de planos o facturas, calculo materiales y voy aprendiendo de ti. Toca el botón de ondas para conversar por voz, como en una llamada.</p>
+          <p>Soy Atlas. Háblame como a un compañero: anoto trabajos, te pongo avisos, miro tus fotos de planos o facturas, calculo materiales y voy aprendiendo de ti. Toca el botón de ondas para conversar por voz, como en una llamada.</p>
           <div class="ejemplos" id="ejemplos">
             <button type="button">Recuérdame mañana a las 7:30 llamar al proveedor de cemento</button>
             <button type="button">Anota: comprar 20 bolsas de cemento y fierro de 3/8 para la obra</button>
@@ -131,14 +131,18 @@
     <label>Modelo (opcional)
       <input id="in-modelo" autocomplete="off" placeholder="automático">
     </label>
-    <label>Personalidad
-      <select id="sel-personalidad">
-        <option value="companero">Compañero de obra · cercano y con humor</option>
-        <option value="jarvis">Mayordomo tipo Jarvis · elegante, preciso y se adelanta</option>
-      </select>
-    </label>
+    <div class="oye" id="fila-oye" hidden>
+      <label class="fila"><input type="checkbox" id="chk-oye"> <span><b>«Oye Atlas»</b> · que me escuche siempre, aun con la pantalla apagada</span></label>
+      <p class="nota" id="oye-estado"></p>
+      <div id="oye-permisos" hidden>
+        <button type="button" class="btn" id="btn-oye-superponer">Paso 1 · Dejar que se abra solo</button>
+        <button type="button" class="btn" id="btn-oye-bateria">Paso 2 · Quitar el ahorro de batería</button>
+        <p class="nota" id="oye-listo" hidden>Permisos listos.</p>
+        <p class="nota">Funciona sin internet para oírte y gasta algo de batería. En Infinix, Tecno o Xiaomi activa también «Inicio automático» para Capataz en los ajustes del teléfono. Tras reiniciar el celular, abre Capataz una vez.</p>
+      </div>
+    </div>
     <label class="fila"><input type="checkbox" id="chk-informe"> Informe de cada mañana al abrir la app (clima, agenda y pendientes)</label>
-    <label>Voz de Capataz
+    <label>Voz de Atlas
       <select id="sel-voz">
         <option value="Charon">Charon · hombre, tranquilo</option>
         <option value="Fenrir">Fenrir · hombre, animado</option>
@@ -152,7 +156,7 @@
     </label>
     <label class="fila"><input type="checkbox" id="chk-interrumpir"> Poder interrumpirle hablando (mejor con audífonos)</label>
     <label class="fila" id="fila-autoinicio" hidden><input type="checkbox" id="chk-autoinicio"> Iniciar con Windows</label>
-    <h3>Lo que Capataz sabe de ti</h3>
+    <h3>Lo que Atlas sabe de ti</h3>
     <ul class="lista" id="lista-perfil"></ul>
     <div class="acciones">
       <button type="button" class="btn" id="btn-guardar-ajustes">Guardar</button>
@@ -183,7 +187,7 @@
 <dialog id="dlg-chats">
   <form method="dialog" class="ajustes">
     <h2>Tus chats</h2>
-    <p class="nota">Lo que Capataz aprende, tus trabajos y avisos son los mismos en todos los chats.</p>
+    <p class="nota">Lo que Atlas aprende, tus trabajos y avisos son los mismos en todos los chats.</p>
     <button type="button" class="btn" id="btn-nuevo-chat2">+ Chat nuevo</button>
     <ul class="lista chats-lista" id="lista-chats"></ul>
     <div class="acciones"><button value="cerrar" class="del">Cerrar</button></div>

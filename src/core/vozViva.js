@@ -19,7 +19,8 @@ function aBase64(bytes){
 }
 
 // eventos: {estado(e), oyendo(texto), diciendo(texto), turno({usuario, respuesta, hechos}), error(code)}
-export async function iniciarVozViva({ voz = "Charon", interrumpir = false, eventos }){
+// saludo: lo primero que se le dice a la IA al conectar (por defecto, que salude).
+export async function iniciarVozViva({ voz = "Charon", interrumpir = false, saludo = "", eventos }){
   const clave = await claveGemini();
   if (!clave) throw { code:"sin_gemini" };
 
@@ -96,7 +97,7 @@ export async function iniciarVozViva({ voz = "Charon", interrumpir = false, even
       window.__depurarVoz?.(m, MODELOS[modeloIdx]);
       if (m.setupComplete){
         abierto = true; emitir("estado", "escuchando");
-        ws.send(JSON.stringify({ clientContent:{ turns:[{ role:"user", parts:[{ text:"(Abrí la conversación por voz. Salúdame en una frase corta.)" }] }], turnComplete:true } }));
+        ws.send(JSON.stringify({ clientContent:{ turns:[{ role:"user", parts:[{ text: saludo || "(Abrí la conversación por voz. Salúdame en una frase corta.)" }] }], turnComplete:true } }));
         return;
       }
       if (m.toolCall){

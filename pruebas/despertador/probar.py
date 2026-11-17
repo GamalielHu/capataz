@@ -1,11 +1,14 @@
 """Prueba del detector de "Oye Atlas" (Vosk, modelo pequeño en español), imitando al servicio de Android:
 lee el audio en trozos de 100 ms, solo procesa cuando hay sonido y revisa cada resultado.
-Uso: python probar.py <carpeta_modelo> <carpeta_wav>
+Uso: python probar.py <carpeta_modelo> <carpeta_wav> <EscuchaService.java>
 
-El reconocedor usa un vocabulario reducido: la frase "oye atlas" más palabras comunes y parecidas
-(atrás, a las, alas, altas…) para que el habla ajena caiga en ellas y no en la frase.
-Se activa cuando "oye atlas" se mantiene N trozos seguidos (o llega como resultado final), con las
-dos palabras pegadas. La prueba mide con qué N se pierde menos y se equivoca menos.
+Las constantes (vocabulario, trozos seguidos, pausa máxima entre palabras) se leen del propio servicio de
+Android, así la prueba mide exactamente la regla que va en el APK:
+  - vocabulario reducido: la frase "oye atlas" más palabras comunes y parecidas (atrás, a las, alas…),
+    para que el habla ajena caiga en ellas y no en la frase;
+  - la frase debe aguantar SEGUIDOS trozos, o llegar como resultado final;
+  - "oye" y "atlas" deben ir pegadas (pausa <= HUECO_MAX) y "atlas" durar entre DUR_MIN y DUR_MAX.
+Sale con error si pierde demasiadas llamadas o da alguna falsa alarma.
 """
 import glob, json, math, os, re, sys, time, unicodedata, wave
 from array import array
@@ -17,33 +20,29 @@ modelo = Model(sys.argv[1])
 audios = sorted(glob.glob(os.path.join(sys.argv[2], "*.wav")))
 norm = lambda s: "".join(c for c in unicodedata.normalize("NFD", s.lower()) if unicodedata.category(c) != "Mn")
 
-TROZO, UMBRAL, COLA, PREVIO = 1600, 110, 15, 4        # 100 ms; RMS mínimo; 1,5 s de cola; 0,4 s previos
-
-# Debe ser idéntico a EscuchaService.RELLENO (Android).
-RELLENO = """a al algo alguien alla alli ahi ahora antes año años aqui asi aun aunque ayer bien bueno buena buenos cada casa casi
-como con cosa cosas cuando cual cuanto creo da dar de del desde despues dia dias dice dijo donde dos el ella ellos en entonces entre
-era es esa ese eso esta estaba estan estar este esto estoy fue gente gracias gran ha habia hace hacer hasta hay he hecho hola hombre
-hoy la las le les lo los luego mas me mejor menos mi mientras mira mis mismo mucho muy nada ni no nos nosotros nunca o obra otra
-otro para pero poco por porque puede pues que quien quiero se sea segun ser si sido siempre sin sobre solo son soy su sus tal tambien
-tan tanto te tengo tiempo tiene tienen todo todos trabajo tres tu tus un una uno unos usted va vamos van veces ver vez voy y ya yo
-oye oyes oiga mira espera vale claro dale listo cinco seis siete ocho nueve diez mañana tarde noche semana mes hora horas
-atras alas alta altas ala atleta atletas plata latas talas salas malas palas tablas hablas atas ratas patas
-gatos datos ante actas aptas pasta basta ellas estas otras atrasa atraso abras
-tomas matias carlos lucas nicolas elias casas cartas mapas llaves clases armas habas hagas haces dame trae llama
-capataz titan condor amigo jefe maestro ingeniero don señor hermano""".split()
+java = open(sys.argv[3], encoding="utf-8").read()
+def constante(nombre):
+    return float(re.search(rf"\b{nombre} = ([\d.]+)", java).group(1))
+TROZO, UMBRAL = int(constante("TROZO")), constante("UMBRAL")
+COLA, PREVIO = int(constante("COLA_MS")) // 100, int(constante("PREVIO"))
+SEGUIDOS, HUECO_MAX, DUR_MIN, DUR_MAX = int(constante("SEGUIDOS")), constante("HUECO_MAX"), constante("DUR_MIN"), constante("DUR_MAX")
+RELLENO = " ".join(re.findall(r'"([^"]*)"', re.search(r"String RELLENO = (.*?);", java, re.S).group(1))).split()
 FRASES = ["oye atlas", "hola atlas", "oiga atlas"]
 GRAMATICA = json.dumps(FRASES + RELLENO + ["[unk]"], ensure_ascii=False)
 FRASE = re.compile(r"(^|\s)(oye|oiga|hola)\s+atlas(\s|$)")
-HUECO_MAX = 0.35      # segundos como mucho entre "oye" y "atlas"
+print(f"Regla: {SEGUIDOS} trozos seguidos, pausa <= {HUECO_MAX} s, atlas entre {DUR_MIN} y {DUR_MAX} s, {len(RELLENO)} palabras de relleno, volumen > {UMBRAL}")
 
 
 def pegadas(palabras):
-    """Con los tiempos de cada palabra: (hay "oye atlas" pegado, hueco, duración de atlas)."""
+    """Con los tiempos de cada palabra: (hay "oye atlas" pegado y de duración normal, hueco, duración de atlas)."""
+    visto = (False, None, None)
     for i in range(1, len(palabras)):
         a, b = palabras[i - 1], palabras[i]
-        if norm(b["word"]) == "atlas" and norm(a["word"]) in ("oye", "oiga", "hola"):
-            return b["start"] - a["end"] <= HUECO_MAX, round(b["start"] - a["end"], 2), round(b["end"] - b["start"], 2)
-    return False, None, None
+        if norm(b["word"]) != "atlas" or norm(a["word"]) not in ("oye", "oiga", "hola"): continue
+        hueco, dur = b["start"] - a["end"], b["end"] - b["start"]
+        visto = (False, round(hueco, 2), round(dur, 2))
+        if hueco <= HUECO_MAX and DUR_MIN <= dur <= DUR_MAX: return True, round(hueco, 2), round(dur, 2)
+    return visto
 
 
 def escuchar(ruta):
@@ -88,12 +87,11 @@ def escuchar(ruta):
     return pasos, (time.time() - t0) / (len(datos) / 32000), len(datos) / 32000 + 0.5
 
 
-def decidir(pasos, n, exigir_pegadas):
-    """Se activa si la frase aguanta n trozos seguidos, o llega en un resultado final. Devuelve (activó, segundo)."""
+def decidir(pasos, n=SEGUIDOS):
+    """Igual que EscuchaService.revisar: n trozos seguidos con la frase, o un resultado final. Devuelve (activó, segundo)."""
     seguidos = 0
     for seg, texto, final, coincide, ok, hueco, dur in pasos:
-        if coincide and exigir_pegadas and ok is False: coincide = False
-        if not coincide: seguidos = 0; continue
+        if not coincide or ok is False: seguidos = 0; continue
         seguidos += 1
         if final or seguidos >= n: return True, seg
     return False, None
@@ -116,16 +114,18 @@ for a, (pasos, _, _) in todo.items():
         if final and texto: finales.append(texto)
     print(f"  {clase(os.path.basename(a)):4s} {os.path.basename(a):34s} racha={mejor:2d} huecos/dur={sorted(huecos)[:4]} final: {' / '.join(finales)[:110]}")
 
-for exigir in (False, True):
-    for n in (3, 5, 7, 9):
-        cuenta = {"pos": [0, 0], "neg": [0, 0], "otro": [0, 0]}; fallas = []; demoras = []
-        for a, (pasos, _, fin_habla) in todo.items():
-            base = os.path.basename(a); c = clase(base)
-            activo, seg = decidir(pasos, n, exigir)
-            cuenta[c][1] += 1; cuenta[c][0] += activo
-            if activo and c == "pos" and "pregunta" not in base and "frase" not in base and "buenos" not in base: demoras.append(seg - fin_habla)
-            if activo != (c == "pos"): fallas.append(f"{'falso' if activo else 'perdió'} {base}")
-        print(f"\n===== {n} trozos seguidos{', palabras pegadas' if exigir else ''}: detectó {cuenta['pos'][0]}/{cuenta['pos'][1]}, "
-              f"falsos en frases ajenas {cuenta['neg'][0]}/{cuenta['neg'][1]}, falsos con otros nombres {cuenta['otro'][0]}/{cuenta['otro'][1]}, "
-              f"demora media {sum(demoras) / max(1, len(demoras)):.1f} s tras terminar de decirlo")
-        print("      " + "; ".join(fallas))
+salida = 0
+for n in sorted({3, SEGUIDOS, 8}):
+    cuenta = {"pos": [0, 0], "neg": [0, 0], "otro": [0, 0]}; fallas = []; demoras = []
+    for a, (pasos, _, fin_habla) in todo.items():
+        base = os.path.basename(a); c = clase(base)
+        activo, seg = decidir(pasos, n)
+        cuenta[c][1] += 1; cuenta[c][0] += activo
+        if activo and c == "pos" and re.match(r"(oye|hola)_atlas_[A-Z][a-z]+(_ruido|_lejos)?\.wav$", base): demoras.append(seg - fin_habla)
+        if activo != (c == "pos"): fallas.append(f"{'falso' if activo else 'perdió'} {base}")
+    print(f"\n===== {n} trozos seguidos{' (la regla del APK)' if n == SEGUIDOS else ''}: detectó {cuenta['pos'][0]}/{cuenta['pos'][1]}, "
+          f"falsos en frases ajenas {cuenta['neg'][0]}/{cuenta['neg'][1]}, falsos con otros nombres {cuenta['otro'][0]}/{cuenta['otro'][1]}, "
+          f"demora media {sum(demoras) / max(1, len(demoras)):.1f} s tras terminar de decirlo")
+    print("      " + "; ".join(fallas))
+    if n == SEGUIDOS and (cuenta["neg"][0] or cuenta["otro"][0] or cuenta["pos"][0] < 0.8 * cuenta["pos"][1]): salida = 1
+sys.exit(salida)

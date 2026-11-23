@@ -116,7 +116,7 @@ for umbral in UMBRALES:
     todo = {a: escuchar(a, umbral) for a in audios}
     etiqueta = f"UMBRAL={umbral:g}" + (" (el del APK)" if umbral == UMBRAL_APK else "")
     print(f"\n########## {etiqueta} — CPU {100 * sum(c for _, c, _ in todo.values()) / len(todo):.0f}% de tiempo real")
-    for n in sorted({3, 4, SEGUIDOS}):
+    for n in sorted({SEGUIDOS}):
         for grp in ("normal", "bajo"):
             cuenta = {"pos": [0, 0], "neg": [0, 0], "otro": [0, 0]}; fallas = []; demoras = []
             for a, (pasos, _, fin_habla) in todo.items():

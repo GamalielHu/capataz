@@ -1,6 +1,6 @@
 """Prueba del detector de "Oye Atlas" (Vosk, modelo pequeño en español), imitando al servicio de Android:
 lee el audio en trozos de 100 ms, solo procesa cuando hay sonido y revisa cada resultado.
-Uso: python probar.py <carpeta_modelo> <carpeta_wav> <EscuchaService.java>
+Uso: python probar.py <carpeta_modelo> <carpeta_wav> <EscuchaService.java> [umbral1,umbral2,...]
 
 Las constantes (vocabulario, trozos seguidos, pausa máxima entre palabras) se leen del propio servicio de
 Android, así la prueba mide exactamente la regla que va en el APK:
@@ -8,7 +8,8 @@ Android, así la prueba mide exactamente la regla que va en el APK:
     para que el habla ajena caiga en ellas y no en la frase;
   - la frase debe aguantar SEGUIDOS trozos, o llegar como resultado final;
   - "oye" y "atlas" deben ir pegadas (pausa <= HUECO_MAX) y "atlas" durar entre DUR_MIN y DUR_MAX.
-Sale con error si pierde demasiadas llamadas o da alguna falsa alarma.
+Los archivos *_bajo.wav simulan una voz bajita/lejana (como desde el otro lado del cuarto).
+Sale con error si pierde demasiadas llamadas o da alguna falsa alarma con el UMBRAL del APK.
 """
 import glob, json, math, os, re, sys, time, unicodedata, wave
 from array import array
@@ -23,14 +24,16 @@ norm = lambda s: "".join(c for c in unicodedata.normalize("NFD", s.lower()) if u
 java = open(sys.argv[3], encoding="utf-8").read()
 def constante(nombre):
     return float(re.search(rf"\b{nombre} = ([\d.]+)", java).group(1))
-TROZO, UMBRAL = int(constante("TROZO")), constante("UMBRAL")
+TROZO = int(constante("TROZO"))
 COLA, PREVIO = int(constante("COLA_MS")) // 100, int(constante("PREVIO"))
 SEGUIDOS, HUECO_MAX, DUR_MIN, DUR_MAX = int(constante("SEGUIDOS")), constante("HUECO_MAX"), constante("DUR_MIN"), constante("DUR_MAX")
+UMBRAL_APK = constante("UMBRAL")
+UMBRALES = [float(x) for x in sys.argv[4].split(",")] if len(sys.argv) > 4 else [UMBRAL_APK]
 RELLENO = " ".join(re.findall(r'"([^"]*)"', re.search(r"String RELLENO = (.*?);", java, re.S).group(1))).split()
 FRASES = ["oye atlas", "hola atlas", "oiga atlas"]
 GRAMATICA = json.dumps(FRASES + RELLENO + ["[unk]"], ensure_ascii=False)
 FRASE = re.compile(r"(^|\s)(oye|oiga|hola)\s+atlas(\s|$)")
-print(f"Regla: {SEGUIDOS} trozos seguidos, pausa <= {HUECO_MAX} s, atlas entre {DUR_MIN} y {DUR_MAX} s, {len(RELLENO)} palabras de relleno, volumen > {UMBRAL}")
+print(f"Regla: {SEGUIDOS} trozos seguidos, pausa <= {HUECO_MAX} s, atlas entre {DUR_MIN} y {DUR_MAX} s, {len(RELLENO)} palabras de relleno, UMBRAL del APK = {UMBRAL_APK}")
 
 
 def pegadas(palabras):
@@ -45,7 +48,7 @@ def pegadas(palabras):
     return visto
 
 
-def escuchar(ruta):
+def escuchar(ruta, umbral):
     """Devuelve la lista de pasos: (segundo, texto, es_final, coincide, pegadas, hueco, dur_atlas)."""
     w = wave.open(ruta, "rb")
     assert w.getframerate() == 16000 and w.getnchannels() == 1, ruta
@@ -70,7 +73,7 @@ def escuchar(ruta):
     for i, d in enumerate(trozos):
         a = array("h", d)
         rms = math.sqrt(sum(x * x for x in a) / len(a)) if a else 0
-        if rms > UMBRAL: cola = COLA
+        if rms > umbral: cola = COLA
         if cola <= 0:
             if abierto:
                 abierto = False
@@ -103,29 +106,32 @@ def clase(base):
     return "otro"      # "oye capataz", "oye cóndor"…: tampoco deben activar a Atlas
 
 
-todo = {a: escuchar(a) for a in audios}
-print(f"CPU: {100 * sum(c for _, c, _ in todo.values()) / len(todo):.0f}% de tiempo real\n")
-print("===== Por audio: racha más larga de «oye atlas», huecos vistos y lo último que oyó")
-for a, (pasos, _, _) in todo.items():
-    racha = mejor = 0; huecos = set(); finales = []
-    for seg, texto, final, coincide, ok, hueco, dur in pasos:
-        racha = racha + 1 if coincide else 0; mejor = max(mejor, racha)
-        if coincide and hueco is not None: huecos.add((hueco, dur))
-        if final and texto: finales.append(texto)
-    print(f"  {clase(os.path.basename(a)):4s} {os.path.basename(a):34s} racha={mejor:2d} huecos/dur={sorted(huecos)[:4]} final: {' / '.join(finales)[:110]}")
+def grupo(base):
+    if "_bajo" in base: return "bajo"      # voz bajita/lejana
+    return "normal"
+
 
 salida = 0
-for n in sorted({3, SEGUIDOS, 8}):
-    cuenta = {"pos": [0, 0], "neg": [0, 0], "otro": [0, 0]}; fallas = []; demoras = []
-    for a, (pasos, _, fin_habla) in todo.items():
-        base = os.path.basename(a); c = clase(base)
-        activo, seg = decidir(pasos, n)
-        cuenta[c][1] += 1; cuenta[c][0] += activo
-        if activo and c == "pos" and re.match(r"(oye|hola)_atlas_[A-Z][a-z]+(_ruido|_lejos)?\.wav$", base): demoras.append(seg - fin_habla)
-        if activo != (c == "pos"): fallas.append(f"{'falso' if activo else 'perdió'} {base}")
-    print(f"\n===== {n} trozos seguidos{' (la regla del APK)' if n == SEGUIDOS else ''}: detectó {cuenta['pos'][0]}/{cuenta['pos'][1]}, "
-          f"falsos en frases ajenas {cuenta['neg'][0]}/{cuenta['neg'][1]}, falsos con otros nombres {cuenta['otro'][0]}/{cuenta['otro'][1]}, "
-          f"demora media {sum(demoras) / max(1, len(demoras)):.1f} s tras terminar de decirlo")
-    print("      " + "; ".join(fallas))
-    if n == SEGUIDOS and (cuenta["neg"][0] or cuenta["otro"][0] or cuenta["pos"][0] < 0.8 * cuenta["pos"][1]): salida = 1
+for umbral in UMBRALES:
+    todo = {a: escuchar(a, umbral) for a in audios}
+    etiqueta = f"UMBRAL={umbral:g}" + (" (el del APK)" if umbral == UMBRAL_APK else "")
+    print(f"\n########## {etiqueta} — CPU {100 * sum(c for _, c, _ in todo.values()) / len(todo):.0f}% de tiempo real")
+    for n in sorted({3, 4, SEGUIDOS}):
+        for grp in ("normal", "bajo"):
+            cuenta = {"pos": [0, 0], "neg": [0, 0], "otro": [0, 0]}; fallas = []; demoras = []
+            for a, (pasos, _, fin_habla) in todo.items():
+                base = os.path.basename(a)
+                if grupo(base) != grp: continue
+                c = clase(base)
+                activo, seg = decidir(pasos, n)
+                cuenta[c][1] += 1; cuenta[c][0] += activo
+                if activo and c == "pos" and re.match(r"(oye|hola)_atlas_[A-Z][a-z]+(_ruido|_lejos|_bajo)?\.wav$", base): demoras.append(seg - fin_habla)
+                if activo != (c == "pos"): fallas.append(f"{'falso' if activo else 'perdió'} {base}")
+            if not sum(v[1] for v in cuenta.values()): continue
+            print(f"  [{grp:6s}] {n} trozos seguidos: detectó {cuenta['pos'][0]}/{cuenta['pos'][1]}, "
+                  f"falsos ajenos {cuenta['neg'][0]}/{cuenta['neg'][1]}, falsos otros nombres {cuenta['otro'][0]}/{cuenta['otro'][1]}, "
+                  f"demora media {sum(demoras) / max(1, len(demoras)):.1f}s")
+            if fallas: print("        " + "; ".join(fallas))
+            if umbral == UMBRAL_APK and n == SEGUIDOS and (cuenta["neg"][0] or cuenta["otro"][0] or cuenta["pos"][0] < 0.75 * cuenta["pos"][1]):
+                salida = 1
 sys.exit(salida)

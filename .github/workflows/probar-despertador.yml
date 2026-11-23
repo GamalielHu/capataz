@@ -23,4 +23,4 @@ jobs:
           curl -fsSL --retry 3 -o modelo.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
           unzip -q modelo.zip && mv vosk-model-small-es-0.42 modelo
       - name: Prueba
-        run: python pruebas/despertador/probar.py modelo pruebas/despertador/wav android/app/src/main/java/bo/capataz/app/EscuchaService.java 2>/dev/null
+        run: python pruebas/despertador/probar.py modelo pruebas/despertador/wav android/app/src/main/java/bo/capataz/app/EscuchaService.java 50,80,110,160,220,350,500 2>/dev/null

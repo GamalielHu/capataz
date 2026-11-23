@@ -14,12 +14,12 @@
         android:background="@drawable/widget_circulo"
         android:padding="9dp"
         android:src="@drawable/widget_mic"
-        android:contentDescription="Hablar con Capataz" />
+        android:contentDescription="Hablar con Atlas" />
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="10dp"
-        android:text="Hablar con Capataz"
+        android:text="Hablar con Atlas"
         android:textColor="#FFFFFF"
         android:textSize="16sp"
         android:textStyle="bold" />

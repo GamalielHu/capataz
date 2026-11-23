@@ -92,7 +92,7 @@ function limpiar(original, quitar){
 
 /* ---------- Intenciones ---------- */
 const RE_AVISO = /\b(?:recuerdame|recuerdale|recordarme|recordame|avisame|avisarme|despiertame|pon(?:me)?(?: un| una)? (?:aviso|alarma|recordatorio)|programa(?: un| una)? (?:aviso|alarma|recordatorio)|(?:nuevo )?(?:aviso|recordatorio|alarma)(?: para)?)\b[:,]?/;
-const RE_TAREA = /^(?:capataz[,:]?\s*)?(?:anota(?:me)?|apunta(?:me)?|agrega(?:r)?|anade|registra|nuevo trabajo|nueva tarea|tarea|trabajo|pendiente|tengo que|hay que|falta)\b[:,]?\s*/;
+const RE_TAREA = /^(?:anota(?:me)?|apunta(?:me)?|agrega(?:r)?|anade|registra|nuevo trabajo|nueva tarea|tarea|trabajo|pendiente|tengo que|hay que|falta)\b[:,]?\s*/;
 const RE_HECHO = /^(?:ya\s+)?(?:termine|terminamos|hice|hicimos|acabe|acabamos|complete|listo|hecho|ya esta|marca(?:r)?(?: como)? hecho|marca|tacha|cumpli)\b[:,]?\s*(?:con\s+)?(?:el |la |lo de |los |las |de )?/;
 const RE_CONSULTA = /(?:\b(?:que|cuales?|cuantos?|cuantas?) (?:tengo|hay|me falta|falta|quedan?|toca)\b|\bpendientes?\s*\??$|\bmis (?:trabajos|tareas|avisos|recordatorios|pendientes)\b|\b(?:resumen|agenda)\b|\bque hay (?:para )?hoy\b|\blista de\b)/;
 const RE_APRENDER = /^(?:recuerda|acuerdate|ten en cuenta|toma nota de|toma nota|para que sepas|anota que|apunta que|aprende)\s+(?:que\s+)?(.+)$/;
@@ -104,6 +104,7 @@ const RE_AYUDA = /^(?:ayuda|que puedes hacer|como funciona|que sabes hacer)/;
 const RE_PREGUNTA = /^(?:cual|cuales|quien|quienes|donde|cuando|como|que|cuanto|cuanta|sabes|dime|me recuerdas)\b/;
 
 let avisoSinHora = null; // {texto} esperando la hora
+export const olvidarPendiente = () => { avisoSinHora = null; };
 
 const vacio = r => ({ nuevas_tareas:[], nuevos_recordatorios:[], completar:[], nuevos_aprendizajes:[], ...r });
 const nuevoAviso = (texto, ms) => vacio({
@@ -152,7 +153,7 @@ function categoriaDe(t){
 
 // estado: {tareas: [...pendientes], avisos: [...pendientes], perfil: [...], proyectos: [...]}
 export function interpretar(original, estado, ahora = new Date()){
-  const texto = original.trim().replace(/^[¿¡\s]+/, "").replace(/^capataz[,:]?\s*/i, "");
+  const texto = original.trim().replace(/^[¿¡\s]+/, "").replace(/^(?:(?:oye|hola|hey)\s+)?(?:atlas|capataz)[,:]?\s+/i, "");
   const n = norm(texto);
 
   // ¿Responde a "¿a qué hora?" de un aviso anterior?

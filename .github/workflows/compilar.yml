@@ -21,6 +21,13 @@ jobs:
       - name: Proyecto Android
         run: |
           if [ ! -d android ]; then npm run android:add; else npm run android:sync; fi
+      - name: Modelo de voz para "Oye Atlas" (sin internet)
+        run: |
+          curl -fsSL --retry 5 --retry-delay 5 -o modelo.zip https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip
+          unzip -q modelo.zip
+          rm -rf android/app/src/main/assets/model-es
+          mv vosk-model-small-es-0.42 android/app/src/main/assets/model-es
+          echo "es-0.42" > android/app/src/main/assets/model-es/uuid
       - name: Firma fija
         env: { KS: "${{ secrets.CAPATAZ_KEYSTORE }}" }
         run: |

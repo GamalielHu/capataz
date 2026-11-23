@@ -1,6 +1,6 @@
 // Loop de conversación: system = reglas + perfil aprendido + estado; respuesta JSON con mutaciones de estado.
 import { enviar as llamarLLM, enviarEnVivo, tieneClave } from "../adapters/llm.js";
-import { interpretar, AYUDA } from "./interprete.js";
+import { interpretar, olvidarPendiente, AYUDA } from "./interprete.js";
 import { items, tareas, avisos, agregarTarea, agregarAviso, actualizar } from "./datos.js";
 import { bloquePerfil, aprender, listarPerfil } from "./memoria.js";
 import { cuandoTexto, localISO, ls } from "./util.js";
@@ -8,14 +8,12 @@ import { accionDispositivo } from "../adapters/dispositivo.js";
 import { recordar, buscarRecuerdos, bloqueRecuerdos } from "./recuerdos.js";
 import { climaTexto } from "./entorno.js";
 
-// Personalidad elegible en Ajustes: compañero de obra (por defecto) o mayordomo tipo J.A.R.V.I.S.
-const ESTILO_COMPANERO = `Eres Capataz, el asistente personal de una persona que lleva proyectos de construcción en Bolivia. No eres un robot de respuestas: eres como un amigo de confianza y mano derecha en la obra, con criterio propio. Hablas español latinoamericano con naturalidad (puedes usar alguna expresión boliviana con moderación), cálido, directo y con buen humor cuando cabe. Le llamas por su nombre si lo sabes. Muestras interés real: preguntas cómo le fue, te acuerdas de lo que te contó antes y le das seguimiento ("¿y al final llegó el fierro?"). Si algo no cuadra, se lo dices con respeto; si no sabes algo, lo admites.`;
-const ESTILO_JARVIS = `Eres Capataz, el asistente personal de una persona que lleva proyectos de construcción en Bolivia, al estilo de J.A.R.V.I.S.: un mayordomo digital brillante, impecable y discreto. Le hablas de "señor" (o por su nombre si él lo prefiere), con cortesía elegante, precisión y un humor seco e ingenioso muy sutil. Vas un paso adelante: cruzas su agenda con el clima, sus obras y lo que recuerdas, y le adviertes antes de que pregunte. Das datos concretos, recomiendas una acción y confirmas lo ejecutado con aplomo ("Hecho, señor. Alarma a las 6:30."). Nunca eres servil ni empalagoso; si algo no cuadra, lo señalas con tacto.`;
+// Un solo carácter, siempre el mismo: Atlas (la app se llama Capataz; el asistente, Atlas).
+const ESTILO = `Eres Atlas, el asistente personal de una persona que lleva proyectos de construcción en Bolivia; vives en su app Capataz, en su celular y en su PC. Tienes un solo carácter, siempre el mismo: brillante, sereno y de total confianza; la mano derecha que carga con todo para que él no tenga que acordarse de nada. Hablas español latinoamericano natural, claro y directo, con calidez y un humor seco y fino cuando cabe (alguna expresión boliviana con moderación). Le llamas por su nombre si lo sabes. Vas un paso adelante: cruzas su agenda con el clima, sus obras y lo que recuerdas, y le adviertes antes de que pregunte. Das datos concretos, recomiendas una acción y confirmas lo ejecutado con aplomo ("Hecho. Alarma a las 6:30."). Muestras interés real: te acuerdas de lo que te contó y le das seguimiento ("¿y al final llegó el fierro?"). Nunca eres servil ni empalagoso; si algo no cuadra se lo dices con tacto, y si no sabes algo lo admites. Si te preguntan quién eres o cómo te llamas: eres Atlas, y te despierta diciendo "Oye Atlas".`;
 const CAPACIDADES = `Eres un asistente completo, como ChatGPT: conversas de cualquier tema, explicas, calculas (materiales, dosificaciones, metrados, costos), redactas mensajes y das ideas. Además llevas su agenda: anotas trabajos, programas recordatorios con fecha y hora, marcas cosas como hechas y le dices qué tiene pendiente. Respuestas breves por defecto (1 a 4 frases); más largas solo si lo pide o el tema lo necesita. Usa lo que sabes de la persona para personalizar sin repetirlo a cada rato.
 Piensa antes de responder: entiende qué necesita de verdad y adelántate (si pide material para una losa, recuérdale también el curado o el encofrado si viene al caso). En cálculos de obra da primero el resultado y luego un desglose corto; usa las unidades y costumbres de Bolivia (bolsas de cemento de 50 kg, m³ de arena y grava, varillas de 12 m, ladrillo de 6 huecos, precios en Bs) e incluye el desperdicio. Si faltan datos, asume valores típicos y dilo. No inventes precios del día ni datos que no sabes: dilo y sugiere confirmarlos.
 Proactividad: usa el clima, la agenda, los recuerdos de conversaciones pasadas y los seguimientos para avisarle cosas útiles sin que te lo pida (lluvia el día de un vaciado, helada para el hormigón, un aviso que choca con otro, algo que quedó pendiente), pero solo cuando importa y en una frase.`;
-export const personalidad = () => ls.get("capataz-personalidad", "companero");
-export const PERSONA_DE = () => `${personalidad() === "jarvis" ? ESTILO_JARVIS : ESTILO_COMPANERO}\n${CAPACIDADES}`;
+export const PERSONA_DE = () => `${ESTILO}\n${CAPACIDADES}`;
 const APRENDER = `Aprendizaje continuo: en CADA mensaje fíjate si la persona revela algo nuevo y útil a futuro y guárdalo en nuevos_aprendizajes: quién es, su familia y equipo, obras (nombre, ubicación, cliente, avance), proveedores, precios que paga, teléfonos, cuadrillas, horarios, gustos, forma de hablar, metas, problemas recurrentes y cómo los resolvió. También aprende de cómo te corrige ("no, a las 8 no, siempre a las 7" = preferencia). Reutiliza la misma clave para actualizar un dato; valor "" para olvidarlo si te lo piden. No repitas lo que ya está igual en el perfil ni guardes datos de un solo uso.`;
 
 // Lo que puede hacer en el celular o la PC (texto: campo "acciones"; voz en vivo: herramientas con el mismo nombre).
@@ -72,7 +70,7 @@ async function resumirViejos(id){
   resumiendo = true;
   try {
     const viejos = turnos.slice(0, turnos.length - MAX_TURNOS);
-    const texto = viejos.map(t => (t.role === "user" ? "Persona: " + t.content : "Capataz: " + leerRespuesta(t.content))).join("\n");
+    const texto = viejos.map(t => (t.role === "user" ? "Persona: " + t.content : "Atlas: " + leerRespuesta(t.content))).join("\n");
     const nuevo = (await llamarLLM({ json:false, maxTokens:1024,
       system:"Resumes conversaciones entre una persona y su asistente de obra. Escribe en español un resumen de máximo 120 palabras con lo importante para seguir conversando: temas, decisiones, números, pendientes y lo que la persona quería. Sin saludos ni relleno.",
       messages:[{ role:"user", content:(resumen ? "Resumen anterior:\n" + resumen + "\n\n" : "") + "Conversación nueva:\n" + texto }] })).trim();
@@ -104,7 +102,7 @@ export function respuestaParcial(buf){
   return out;
 }
 
-/* ---------- Seguimientos: preguntas que Capataz le hará más adelante ---------- */
+/* ---------- Seguimientos: preguntas que Atlas le hará más adelante ---------- */
 let seguimientos = ls.get("capataz-seguimientos", []);
 const guardarSeg = () => ls.set("capataz-seguimientos", seguimientos);
 export const seguimientosVencidos = () => seguimientos.filter(x => x.cuando <= Date.now());
@@ -171,8 +169,8 @@ function siguienteHora(hora, fecha){
 
 // Devuelve {respuesta, hechos}. Lanza {code} si falla.
 // Sin clave (o sin internet) responde el intérprete propio; con clave conversa la IA.
-// soloSiEntiende: devuelve null en vez de "No te entendí".
-async function sinIA(texto, soloSiEntiende = false){
+// soloSiEntiende: devuelve null en vez de "No te entendí". soloSiCrea: null si no llegó a anotar o programar algo.
+async function sinIA(texto, soloSiEntiende = false, soloSiCrea = false){
   const estado = {
     tareas: tareas().filter(t=>!t.hecho).sort((a,b)=>b.creado-a.creado),
     avisos: avisos().filter(a=>!a.hecho).sort((a,b)=>a.cuando-b.cuando),
@@ -181,6 +179,7 @@ async function sinIA(texto, soloSiEntiende = false){
   };
   const r = interpretar(texto, estado) || (soloSiEntiende ? null : { respuesta: "No te entendí. " + AYUDA });
   if (!r) return null;
+  if (soloSiCrea && !(r.nuevos_recordatorios.length || r.nuevas_tareas.length)){ olvidarPendiente(); return null; }
   const hechos = (await aplicar(r)).filter(h => !/^Aprendí|^Olvidé/.test(h));
   return { respuesta: r.respuesta, hechos };
 }
@@ -196,12 +195,27 @@ export const ORDENES = {
   semana: "[Planifica mi semana] Planifica mi semana desde hoy hasta el domingo: reparte mis trabajos pendientes por día según urgencia, clima pronosticado y lo que sabes de mis obras y rutina; marca qué conviene comprar o coordinar antes. Crea recordatorios para los hitos clave (máximo 7) y dímelo por día en líneas cortas. No me hagas preguntas: asume lo razonable y dime en una frase qué asumiste."
 };
 
+// Órdenes de agenda claras y completas ("recuérdame mañana a las 7 llamar al ingeniero", "anota comprar cemento"):
+// las resuelve al instante el intérprete propio, sin esperar a la IA. Lo dudoso o compuesto va a la IA.
+const ORDEN_CLARA = /^(?:(?:oye\s+)?atlas[,:]?\s+)?(?:por favor[,:]?\s+)?(?:recu[eé]rdame|av[ií]same|anota(?:me)?|apunta(?:me)?)\s/i;
+const ORDEN_DUDOSA = /[?¿;\n]|\b(?:tambi[eé]n|adem[aá]s|luego|despu[eé]s|cada|todos los|todas las|si|cuando|antes de|salvo|a menos|que (?:el|la|los|las|mi|mis|su|sus)\b)\b|[.!]\s+\S|,\s*(?:y|pero)\b/i;
+async function alInstante(texto){
+  if (texto.length > 140 || !ORDEN_CLARA.test(texto) || ORDEN_DUDOSA.test(texto)) return null;
+  const r = await sinIA(texto, true, true).catch(() => null);
+  if (!r) return null;
+  turnos.push({ role:"user", content:texto }, { role:"assistant", content:JSON.stringify({ respuesta:r.respuesta, aplicado:r.hechos }) });
+  guardarTurnos();
+  recordar(`Persona: ${texto}\nAtlas: ${r.respuesta}`, chatId);
+  return r;
+}
+
 // onParcial(texto): la respuesta mientras se escribe (streaming).
 export async function conversar(texto, modelo, { voz = false, imagen = null, onParcial = null } = {}){
   if (!(await tieneClave())){
     if (imagen) return { respuesta:"Para mirar fotos necesito una clave de IA. Ponla gratis en Ajustes (la de Gemini).", hechos:[] };
     return sinIA(texto);
   }
+  if (!imagen){ const r = await alInstante(texto); if (r) return r; }
   try { return await conIA(texto, modelo, voz, imagen, onParcial); }
   catch(e){
     if (e?.code === "red") return sinIA(texto);
@@ -231,7 +245,7 @@ async function conIA(texto, modelo, voz, imagen, onParcial){
   const hechos = await aplicar(r);
   turnos.push({role:"user",content:(imagen ? "[envió una foto] " : "") + texto},{role:"assistant",content:JSON.stringify({respuesta, aplicado:hechos})});
   guardarTurnos();
-  if (!/^\[(Informe|Organiza|Planifica)/.test(texto)) recordar(`Persona: ${texto}\nCapataz: ${respuesta}`, chatId);
+  if (!/^\[(Informe|Organiza|Planifica)/.test(texto)) recordar(`Persona: ${texto}\nAtlas: ${respuesta}`, chatId);
   const titulo = primero && typeof r?.titulo === "string" ? r.titulo.trim().slice(0, 40) : "";
   return { respuesta, hechos, titulo };
 }
@@ -239,7 +253,7 @@ async function conIA(texto, modelo, voz, imagen, onParcial){
 export function agregarTurno(usuario, respuesta){
   turnos.push({role:"user",content:usuario},{role:"assistant",content:JSON.stringify({respuesta, aplicado:[]})});
   guardarTurnos();
-  recordar(`Persona: ${usuario}\nCapataz: ${respuesta}`, chatId);
+  recordar(`Persona: ${usuario}\nAtlas: ${respuesta}`, chatId);
 }
 
 /* ---------- Voz en tiempo real (Gemini Live): herramientas en vez de JSON ---------- */

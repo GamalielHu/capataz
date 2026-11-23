@@ -10,7 +10,7 @@ export function iniciarModalClave({ alCambiar } = {}){
 
   async function resumen(){
     const clave = await getApiKey();
-    $("#clave-resumen").textContent = clave ? `${proveedor(clave)} · ${maskKey(clave)}` : "Sin clave: Capataz funciona sin internet, pero no conversa libremente";
+    $("#clave-resumen").textContent = clave ? `${proveedor(clave)} · ${maskKey(clave)}` : "Sin clave: Atlas funciona sin internet, pero no conversa libremente";
     return clave;
   }
   async function abrir(mensaje){
@@ -18,7 +18,7 @@ export function iniciarModalClave({ alCambiar } = {}){
     entrada.value = clave; ver(false);
     const rec = origenRecuperado();
     estado(mensaje || (clave ? (rec === "copia" ? "Clave recuperada de la copia de seguridad." : rec === "archivo" ? "Clave recuperada de Documentos/Capataz." : `Clave guardada (${proveedor(clave)}). Puedes verla con el ojo o cambiarla.`)
-      : "No hay clave guardada. Sin clave, Capataz igual anota avisos y trabajos sin internet."), mensaje ? "error" : "");
+      : "No hay clave guardada. Sin clave, Atlas igual anota avisos y trabajos sin internet."), mensaje ? "error" : "");
     $("#fila-importar").hidden = !puedeImportar;
     dlg.showModal();
   }

@@ -26,14 +26,14 @@ export async function accionDispositivo(tipo, a = {}){
         const cuando = new Date(`${a.fecha}T${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`).getTime();
         if (cuando - Date.now() > 24 * 3600e3) return { usarAviso:true };
       }
-      const r = await Disp.alarma({ hora:h, minuto:m, mensaje:a.mensaje || "Capataz" });
+      const r = await Disp.alarma({ hora:h, minuto:m, mensaje:a.mensaje || "Atlas" });
       return { ok:r.ok, texto: r.ok ? `Alarma ${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}${a.mensaje ? " · " + a.mensaje : ""}` : "no se pudo abrir el reloj" };
     }
     case "temporizador": {
       const s = Math.round(Number(a.minutos || 0) * 60 + Number(a.segundos || 0));
       if (!(s > 0)) return { ok:false, texto:"duración inválida" };
       if (plataforma !== "android") return { usarAviso:true, segundos:s };
-      const r = await Disp.temporizador({ segundos:s, mensaje:a.mensaje || "Capataz" });
+      const r = await Disp.temporizador({ segundos:s, mensaje:a.mensaje || "Atlas" });
       return { ok:r.ok, texto: r.ok ? `Temporizador de ${s >= 60 ? Math.round(s / 60) + " min" : s + " s"}` : "no se pudo abrir el reloj" };
     }
     case "musica": {

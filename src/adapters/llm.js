@@ -73,9 +73,9 @@ export async function claveGemini(){
 }
 
 // Respuesta por partes (streaming) con Gemini: onTexto(acumulado) se llama mientras el modelo escribe.
-// Cuando Google está lento, si un modelo no empieza a escribir en ESCALON ms se lanza el siguiente en paralelo
-// y se queda el primero que conteste. Si no hay streaming posible (Claude, fetch bloqueado) usa enviar().
-const ESCALON = 4000, ESPERA_MAX = 75000, EN_PARALELO = 4;
+// Salen dos modelos a la vez y se queda el primero que empiece a escribir; si ninguno arranca en ESCALON ms
+// se suma el siguiente. Si no hay streaming posible (Claude, fetch bloqueado) usa enviar().
+const ESCALON = 2500, ESPERA_MAX = 75000, EN_PARALELO = 4, DE_ENTRADA = 2;
 
 // Una petición en streaming. alPrimero() se llama con el primer texto; si devuelve false, se corta.
 async function flujo(clave, pedido, signal, alPrimero, onTexto){
@@ -146,7 +146,7 @@ export async function enviarEnVivo(pedido, onTexto){
           fallo(e);
         });
     }
-    lanzar();
+    for (let i = 0; i < DE_ENTRADA; i++) lanzar();
   });
   if (resultado.usarNormal) return enviar(pedido);  // fetch bloqueado o sin red: camino normal
   if (resultado.error) throw resultado.error;

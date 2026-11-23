@@ -208,7 +208,7 @@ function crearBandeja() {
   bandeja.setToolTip("Capataz");
   const menu = () => Menu.buildFromTemplate([
     { label: "Abrir Capataz", click: mostrar },
-    { label: "Hablar con Capataz (Ctrl+Alt+Espacio)", click: hablar },
+    { label: "Hablar con Atlas (Ctrl+Alt+Espacio)", click: hablar },
     { label: "Iniciar con Windows", type: "checkbox", checked: app.getLoginItemSettings({ args: [ARRANQUE_OCULTO] }).openAtLogin,
       click: i => app.setLoginItemSettings({ openAtLogin: i.checked, args: [ARRANQUE_OCULTO] }) },
     { type: "separator" },

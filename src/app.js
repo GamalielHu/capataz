@@ -102,7 +102,7 @@ btnMic.addEventListener("click", async () => {
   if(!puedeDictar()){ notaChat.textContent = consejoDictado; $("#in-chat").focus(); return; }
   if(grabando){ detener(); return; }
   grabando=true; btnMic.classList.add("grabando"); notaChat.textContent="Escuchando…";
-  retenerMicrofono();
+  await retenerMicrofono();
   try{
     const final = await dictar(t => $("#in-chat").value = t);
     notaChat.textContent="";
@@ -309,7 +309,7 @@ function vigilarSilencio(reiniciar = true){
 }
 async function abrirVoz({ manosLibres = false } = {}){
   modoVoz.activo = true; modoVoz.manosLibres = manosLibres; capa.hidden = false; abrir("hablar");
-  if(!modoVoz.retenido){ modoVoz.retenido = true; retenerMicrofono(); }
+  if(!modoVoz.retenido){ modoVoz.retenido = true; await retenerMicrofono(); }
   estadoVoz("pensando", "Conectando…");
   vigilarSilencio();
   try{

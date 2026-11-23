@@ -78,8 +78,16 @@ public class Escucha extends Plugin {
     }
 
     // La app va a usar el micrófono (conversación o dictado): el servicio lo suelta.
+    // Espera a que de verdad lo haya soltado (si no, compite con el dictado nativo por el micrófono).
     @PluginMethod
-    public void pausar(PluginCall call) { if (EscuchaService.corriendo) mandar(EscuchaService.ACCION_PAUSAR); call.resolve(); }
+    public void pausar(PluginCall call) {
+        if (EscuchaService.corriendo) mandar(EscuchaService.ACCION_PAUSAR);
+        long limite = System.currentTimeMillis() + 1000;
+        while ("escuchando".equals(EscuchaService.estado) && System.currentTimeMillis() < limite) {
+            try { Thread.sleep(20); } catch (InterruptedException ignored) { break; }
+        }
+        call.resolve();
+    }
 
     @PluginMethod
     public void reanudar(PluginCall call) { if (EscuchaService.corriendo) mandar(EscuchaService.ACCION_REANUDAR); call.resolve(); }

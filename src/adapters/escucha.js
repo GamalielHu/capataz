@@ -25,11 +25,12 @@ export async function reanudarEscuchaSiToca(){
 }
 
 // Mientras la app usa el micrófono (conversación o dictado) el servicio lo suelta; al terminar vuelve a escuchar.
+// Espera a que el micrófono quede libre antes de seguir, para no competir con el dictado nativo.
 let usos = 0, latido = null;
-export function retenerMicrofono(){
+export async function retenerMicrofono(){
   if (!E) return;
   if (usos++ === 0){
-    E.pausar().catch(() => {});
+    await E.pausar().catch(() => {});
     latido = setInterval(() => E.pausar().catch(() => {}), 4 * 60e3); // el servicio vuelve solo a los 10 min si nadie insiste
   }
 }

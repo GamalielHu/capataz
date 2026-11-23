@@ -233,7 +233,7 @@ async function conIA(texto, modelo, voz, imagen, onParcial){
   const primero = !turnos.length;
   // Contexto inteligente en paralelo y con tope de tiempo: memoria, clima y recuerdos parecidos.
   const tope = (p, ms, d) => Promise.race([p, new Promise(ok => setTimeout(() => ok(d), ms))]);
-  const [perfilTxt, clima, recuerdos] = await Promise.all([bloquePerfil(), tope(climaTexto(), 3000, ""), tope(buscarRecuerdos(texto, 6, chatId), 3000, [])]);
+  const [perfilTxt, clima, recuerdos] = await Promise.all([bloquePerfil(), tope(climaTexto(), 900, ""), tope(buscarRecuerdos(texto, 6, chatId), 1200, [])]);
   const system = `${reglas()}${primero ? '\nEs el primer mensaje de este chat: agrega también "titulo" con 2 a 5 palabras que nombren el tema (ej. "Obra Achumani", "Cálculo de losa").' : ""}${voz ? VOZ : ""}\n\n## Lo que sabes de la persona\n${perfilTxt}${recuerdos.length ? "\n\n## Recuerdos de conversaciones pasadas que pueden servir\n" + bloqueRecuerdos(recuerdos) : ""}\n\n## Estado actual\n${contexto(clima)}`;
   const messages = [...turnos.slice(-MAX_TURNOS), { role:"user", content:texto }];
   const pedido = { system, messages, modelo, imagen, potente: esDificil(texto, imagen) };
